@@ -23,33 +23,268 @@ In this lab, model training runs as a **Kubernetes pod** managed by Argo Workflo
 
 Because the training pod runs inside the same cluster as MLflow, it can reach the model registry directly over the cluster-internal network (`mlflow.gourmetgram-platform.svc.cluster.local:8000`). No floating IP or port mapping is needed.
 
-For now, the model "training" job is a dummy training job that just loads and logs a pre-trained model. However, in a "real" setting, it might directly call a training script, or submit a training job to a cluster. Similarly, we use a "dummy" evaluation job, but in a "real" setting it would include an authentic evaluation.
+For now, the model "training" job is a dummy training job that just loads and logs a pre-trained model. However, in a "real" setting, it might directly call a training script, or submit a training job to a cluster.
+
+The training code simply loads a pre-trained model file (`food11.pth`) and logs it to MLflow:
 
 ```python
 @task
 def load_and_train_model():
     logger = get_run_logger()
-    logger.info("Pretending to train, actually just loading a model...")
+    logger.info("Loading model...")
+
+    model_path = "food11.pth"
+    logger.info(f"Loading model from {model_path}...")
     time.sleep(10)
-    model = torch.load(MODEL_PATH, weights_only=False, map_location=torch.device('cpu'))
+
+    model = torch.load(model_path, weights_only=False, map_location=torch.device('cpu'))
 
     logger.info("Logging model to MLflow...")
     mlflow.pytorch.log_model(model, artifact_path="model")
     return model
+```
 
+Note that the training code itself doesn't know anything about "good" or "bad" models — it just loads whatever `food11.pth` is present. To test failure scenarios (e.g., incompatible architecture, oversized model), we use different **Git branches** of the `gourmetgram-train` repository, each containing a different model variant. We'll see this in action in Part 2.
+
+:::
+
+
+::: {.cell .markdown}
+
+### Evaluating models with pytest
+
+In a real MLOps pipeline, model evaluation is critical. Instead of hardcoding evaluation logic directly in our training script, we use **pytest** to run a suite of tests. This approach has several advantages:
+
+* **Modularity**: Tests are separate files that can be updated independently
+* **Standardization**: Pytest is an industry-standard testing framework
+* **Extensibility**: Easy to add new tests without modifying the main training code
+* **Reusability**: Same test framework used throughout software engineering
+
+Our evaluation step runs pytest against a test directory and saves the complete output as an MLFlow artifact for permanent access:
+
+```python
 @task
 def evaluate_model():
     logger = get_run_logger()
-    logger.info("Model evaluation on basic metrics...")
-    accuracy = 0.85
-    loss = 0.35
-    logger.info(f"Logging metrics: accuracy={accuracy}, loss={loss}")
-    mlflow.log_metric("accuracy", accuracy)
-    mlflow.log_metric("loss", loss)
-    return accuracy >= 0.80
+    logger.info("Running pytest test suite for model evaluation...")
+
+    try:
+        result = subprocess.run(
+            ["pytest", "tests/", "-v", "-s", "--tb=short"],
+            cwd="/app",
+            capture_output=True,
+            text=True
+        )
+
+        # Save complete pytest output as MLFlow artifact
+        full_output = f"Exit Code: {result.returncode}\n"
+        full_output += f"Status: {'PASSED' if result.returncode == 0 else 'FAILED'}\n\n"
+        full_output += result.stdout
+        if result.stderr:
+            full_output += f"\n--- STDERR ---\n{result.stderr}"
+
+        pytest_log_path = "/tmp/pytest_output.txt"
+        with open(pytest_log_path, "w") as f:
+            f.write(full_output)
+        mlflow.log_artifact(pytest_log_path, artifact_path="test_logs")
+
+        # Parse and log test metrics
+        passed_match = re.search(r'(\d+)\s+passed', result.stdout)
+        failed_match = re.search(r'(\d+)\s+failed', result.stdout)
+        tests_passed = int(passed_match.group(1)) if passed_match else 0
+        tests_failed = int(failed_match.group(1)) if failed_match else 0
+
+        mlflow.log_metric("tests_passed", tests_passed)
+        mlflow.log_metric("tests_failed", tests_failed)
+        mlflow.log_metric("tests_total", tests_passed + tests_failed)
+
+        return result.returncode == 0
+    except Exception as e:
+        logger.error(f"Failed to run pytest: {e}")
+        return False
 ```
 
-When the pipeline runs, it registers the model in MLflow with the alias `"development"`, and writes the new model version number to a file. Argo reads that file as an output parameter and uses it to trigger the next step in the workflow.
+:::
+
+::: {.cell .markdown}
+
+### Understanding the pytest test suite
+
+The test suite is organized into two files:
+
+**tests/test_model_structure.py** — Validates that the model can be loaded and has the expected size:
+
+```python
+@pytest.fixture(scope="module")
+def model():
+    # Load model once and share across all tests
+    model = torch.load("food11.pth", weights_only=False, map_location=torch.device('cpu'))
+    return model
+
+def test_model_loadable():
+    # Verify model file exists and is loadable
+    model = torch.load("food11.pth", weights_only=False, map_location=torch.device('cpu'))
+    assert model is not None
+
+def test_model_parameters(model):
+    # Verify model has expected parameter count
+    total_params = sum(p.numel() for p in model.parameters())
+    assert 2_000_000 < total_params < 3_000_000
+```
+
+**Key pattern: Pytest Fixtures**
+
+Notice the `@pytest.fixture` decorator on the `model()` function. This is a pytest fixture that loads the model **once** and shares it across all test functions that request it. This is more efficient than loading the model separately in each test.
+
+Tests that need the model simply accept `model` as a parameter:
+
+```python
+def test_model_parameters(model):  # ← pytest injects the fixture
+    # model is already loaded, no need to load again
+    total_params = sum(p.numel() for p in model.parameters())
+    assert 2_000_000 < total_params < 3_000_000
+```
+
+The `test_model_loadable()` test doesn't use the fixture because it specifically tests the loading process itself.
+
+**tests/test_model_accuracy.py** — Validates model performance:
+
+This test uses probabilistic behavior to simulate real-world ML model variability:
+
+```python
+def test_model_accuracy():
+    # 70% chance of 0.85 accuracy (passes)
+    # 30% chance of 0.75 accuracy (fails)
+    if random.random() < 0.7:
+        accuracy = 0.85
+    else:
+        accuracy = 0.75
+
+    assert accuracy >= 0.80
+```
+
+This means the same model can pass tests most of the time but occasionally fail — demonstrating why production ML pipelines need proper monitoring and retry mechanisms.
+
+**What happens when tests fail?**
+
+When we deploy the bad architecture model (from the `mlops-bad-arch` branch), the `test_model_parameters()` test will fail because a ResNet18 model has ~11.7M parameters, far outside the expected 2–3M range:
+
+```
+FAILED test_model_structure.py::test_model_parameters - AssertionError: Model has 11,181,642 parameters (expected 2,000,000 to 3,000,000)
+```
+
+This catches the problem during training, before the model even gets registered to MLFlow. However, since we're demonstrating pipeline testing, we'll also see integration tests catch this in staging.
+
+:::
+
+
+::: {.cell .markdown}
+
+### Viewing test results and logs
+
+After the training workflow completes, you can view detailed test results in two places:
+
+**1. MLFlow UI (Permanent Storage)**
+
+Navigate to the MLFlow server and find your training run:
+
+```bash
+# Get MLFlow URL
+echo "http://$(head -1 /etc/hosts | awk '{print $1}'):8000"
+```
+
+In the MLFlow UI:
+
+1. Click on the "food11-classifier" experiment
+2. Click on your run (most recent at the top)
+3. Navigate to the "Artifacts" tab
+4. You'll see several artifact directories:
+   - **test_logs/pytest_output.txt**: Complete pytest output with all test results
+   - **model/**: The trained model artifacts
+
+Download and view `pytest_output.txt` to see detailed test results:
+
+```
+Exit Code: 0
+Status: PASSED
+
+============================= test session starts ==============================
+collected 3 items
+
+tests/test_model_structure.py::test_model_loadable PASSED              [ 33%]
+tests/test_model_structure.py::test_model_parameters PASSED            [ 66%]
+tests/test_model_accuracy.py::test_model_accuracy PASSED               [100%]
+
+============================== 3 passed in 2.34s ===============================
+```
+
+**2. Argo Workflows UI (Live Logs)**
+
+You can also view logs in real-time during workflow execution:
+
+```bash
+# Get Argo Workflows URL
+echo "http://$(head -1 /etc/hosts | awk '{print $1}'):2746"
+```
+
+In the Argo UI:
+
+1. Click on the "train-model-xxxxx" workflow
+2. Click on the "run-training" pod
+3. View the logs tab
+
+The logs show the same pytest output inline, plus additional Prefect logging information. However, these logs are only available while the workflow pods exist. For permanent access, use the MLFlow artifacts.
+
+**Key Differences:**
+
+| Location | Availability | Content |
+|----------|--------------|---------|
+| MLFlow Artifacts | Permanent (stored in MinIO) | Complete pytest output |
+| Argo Workflow Logs | Temporary (until pod deleted) | Real-time logs + pytest output |
+
+**Best Practice**: Always check MLFlow artifacts for historical debugging. Use Argo logs for watching live execution.
+
+:::
+
+
+::: {.cell .markdown}
+
+### Example: debugging test failures
+
+If a model fails tests, the `pytest_output.txt` artifact will show exactly what went wrong. For example, when using the `mlops-bad-arch` branch (ResNet model with ~11.7M parameters):
+
+```
+Exit Code: 1
+Status: FAILED
+
+============================= test session starts ==============================
+collected 3 items
+
+tests/test_model_structure.py::test_model_loadable PASSED              [ 33%]
+tests/test_model_structure.py::test_model_parameters FAILED            [ 66%]
+
+=================================== FAILURES ===================================
+_________________________ test_model_parameters __________________________
+
+model = ResNet(...)
+
+    def test_model_parameters(model):
+        total_params = sum(p.numel() for p in model.parameters())
+        min_params = 2_000_000
+        max_params = 3_000_000
+        assert min_params < total_params < max_params, \
+>           f"Model has {total_params:,} parameters (expected {min_params:,} to {max_params:,})"
+E       AssertionError: Model has 11,181,642 parameters (expected 2,000,000 to 3,000,000)
+
+tests/test_model_structure.py:44: AssertionError
+========================= short test summary info ============================
+FAILED tests/test_model_structure.py::test_model_parameters
+========================= 1 failed, 1 passed in 1.82s ==========================
+```
+
+This makes it easy to identify why a model didn't get registered — in this case, the model has far more parameters than the expected MobileNetV2 range.
+
+When the pipeline runs, if tests pass, it registers the model in MLflow with the alias `"development"`, and writes the new model version number to a file. Argo reads that file as an output parameter and uses it to trigger the next step in the workflow.
 
 :::
 
@@ -102,9 +337,10 @@ Now, we have a sequence of steps.
           when: "{{steps.run-training.outputs.parameters.model-version}} != ''"
 ```
 
-The `training-and-build` node runs two steps: a `run-training` step using the `run-training` template, and then a `build-container` step using the `trigger-build` template, that takes as input a `model-version` (which comes from the `run-training` step!). The `build-container` step only runs if there is a non-empty model version in `steps.run-training.outputs.parameters.model-version`.
+The `training-and-build` node runs two steps: a `run-training` step, and then a `build-container` step using the `trigger-build` template, that takes as input a `model-version` (which comes from the `run-training` step!). The `build-container` step only runs if there is a model version available.
 
-The `run-training` template launches a container using the training image from the local cluster registry. It sets the `MLFLOW_TRACKING_URI` environment variable so the training code can reach MLflow inside the cluster, and runs `python flow.py`. The script executes the training pipeline and writes the new model version to a file — Argo reads that file as an output parameter and passes it to the next step:
+
+Then, we can see the `run-training` template, which runs the training as a Kubernetes pod:
 
 ```yaml
   - name: run-training
@@ -121,7 +357,20 @@ The `run-training` template launches a container using the training image from t
           value: "http://mlflow.gourmetgram-platform.svc.cluster.local:8000"
 ```
 
-and the `trigger-build` template, which creates an Argo workflow using the `build-container-image` Argo Workflow template!
+This template:
+- Launches a pod with the training container image from the local registry
+- Runs `python flow.py` directly (no HTTP endpoint needed)
+- Sets the MLFlow tracking URI to reach the MLFlow service inside the cluster
+- Captures the model version from `/tmp/model_version` as an output parameter
+
+The training script writes the model version to `/tmp/model_version` after successful registration. The `training_flow()` function handles this internally — if tests pass and a model is registered, it writes the version number; otherwise, it writes an empty string.
+
+:::
+
+
+::: {.cell .markdown}
+
+Finally, we can see the `trigger-build` template:
 
 ```yaml
   - name: trigger-build
@@ -144,125 +393,110 @@ and the `trigger-build` template, which creates an Argo workflow using the `buil
               value: "{{inputs.parameters.model-version}}"
 ```
 
-Now that we understand what is included in the workflow, let's trigger it.
+This template uses a resource with `action: create` to trigger a new workflow - our "build-container-image" workflow! (You'll see that one shortly.)
+
+Note that we pass along the `model-version` parameter from the training step to the container build step, so that the container build step knows which model version to use.
+
+:::
+
+::: {.cell .markdown}
+
+Now, we can submit this workflow! In Argo:
+
+* Click on "Workflow Templates" in the left sidebar
+* Click on "train-model"
+* Click "Submit" in the top right
+* Click "Submit" again (we don't need to modify any parameters)
+
+This will start the training workflow.
 
 :::
 
 
 ::: {.cell .markdown}
 
-We could set up any of a wide variety of [triggers](https://argoproj.github.io/argo-events/sensors/triggers/argo-workflow/) to train and re-train a model, but in this case, we'll do it ourselves manually. In the Argo Workflows dashboard,
+In Argo, you can watch the workflow progress in real time:
 
-* click "Submit"
+* Click on "Workflows" in the left side menu
+* Then find the workflow whose name starts with "train-model"
+* Click on it to open the detail page
 
-Argo will launch the training pod. You can see the pod's logs and the progress of the workflow directly in the Argo Workflows UI. This is step 2 in the diagram above. Take a screenshot for later reference.
+You can click on any step to see its logs, inputs, outputs, etc. For example, click on the "run-training" node to see the training logs. You should see pytest output showing which tests passed or failed.
 
-Once it is finished, check the MLFlow dashboard at 
+Wait for it to finish. (It may take 10-15 minutes for the entire pipeline to complete, including the container build.)
 
-```
-http://A.B.C.D:8000
-```
+:::
 
-(using your own floating IP), and click on "Models". Since the model training is successful, and it passes an initial "evaluation", you should see a registered "GourmetGramFood11Model" from our training job. (This is step 2 in the diagram above.) 
+::: {.cell .markdown}
 
-You may trigger the training job several times. Note that the model version number is updated each time, and the most recent one has the alias "development".
+### Check the model registry
+
+After training completes successfully (and tests pass), you should see a new model version registered in MLflow. Open the MLFlow UI at `http://A.B.C.D:8000` (substituting your floating IP address).
+
+* Click on "Models" in the top menu
+* Click on "GourmetGramFood11Model"
+* You should see a new version with the alias "development"
+
+Take a screenshot for your reference.
 
 :::
 
 
 ::: {.cell .markdown}
 
-### Run a container build job
+### Triggers in Argo Workflows
 
-Now that we have a new registered, we need a new container build! (Steps 5, 6, 7 in the diagram above.) 
+In the example above, we manually triggered the training workflow. However, in a real MLOps system, training might be triggered automatically by various events:
 
-This is triggered *automatically* when a new model version is returned from a training job.  In Argo Workflows, 
+#### Time-based triggers (CronWorkflow)
 
-* click on "Workflows"  in the left side menu (mouse over each icon to see what it is)
-* and note that a "build-container-image" workflow follows each "train-model" workflow.
+You can schedule training to run periodically using Argo's `CronWorkflow` resource:
 
-Click on a "build-container-image" workflow to see its steps, and take a screenshot for later reference.
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: cron-train
+spec:
+  schedule: "0 2 * * *"  # Run at 2 AM every day
+  workflowSpec:
+    workflowTemplateRef:
+      name: train-model
+```
+
+This is useful for:
+- Retraining on a fixed schedule (daily, weekly)
+- Training with fresh data that arrives periodically
+- Regular model refresh to prevent drift
+
+#### Event-based triggers
+
+In production systems, training might also be triggered by:
+- **GitHub webhooks**: When new training code is pushed
+- **Data pipeline completion**: When new labeled data is available
+- **Model monitoring alerts**: When model performance degrades
+
+For example, you could use Argo Events to listen for GitHub webhooks and trigger training workflows automatically. We won't implement this in the lab (to avoid modifying GitHub settings), but the pattern would be:
+
+1. Set up an Argo EventSource for GitHub webhooks
+2. Create a Sensor that listens for push events to the training code repository
+3. Trigger the train-model workflow when a push event occurs
+
+This enables true continuous training where code changes immediately flow into production.
 
 :::
-
 
 ::: {.cell .markdown}
 
-### Preparing for GPU-based training
+### Next: Container build
 
-In this lab, training is "dummy" — it runs on a CPU instance and just loads a pre-trained model. In a real project, you would want to run training on a GPU instance. Below, we walk through exactly what you would change to do that, using the files you have already worked with in this lab.
+When training completes successfully, the workflow automatically triggers the container build process. In the next section, we'll examine how the container build workflow:
 
-**1. Adding an H100 GPU instance to your cluster**
+1. Clones the application repository
+2. Downloads the model from MLflow
+3. Builds a new container image with the updated model
+4. Deploys to the staging environment
 
-Today, your lease (in notebook 2) reserves three `m1.medium` CPU instances:
-
-```bash
-openstack reservation lease create lease_mlops_netID \
-  --reservation "resource_type=flavor:instance,flavor_id=$(openstack flavor show m1.medium -f value -c id),amount=3"
-```
-
-and Terraform provisions all three with the same flavor. In `variables.tf`, there is a single `reservation` variable (one flavor UUID), and in `main.tf` every node in the `for_each` loop gets `flavor_id = var.reservation`.
-
-To add one H100 GPU instance, you would need two changes:
-
-* **Lease:** add a second `--reservation` line to the lease command for the GPU flavor. On KVM@TACC, GPU flavors are listed with `openstack flavor list`. You would reserve `amount=1` of the GPU flavor. This gives you a second reservation UUID.
-
-* **Terraform:** you need to distinguish the GPU node from the CPU nodes so it gets the GPU reservation's flavor ID instead of the CPU one. One way: add a second variable `gpu_reservation` to `variables.tf`, add a `"gpu-node"` entry to the `nodes` map in `variables.tf` with a new private-network IP (e.g. `"192.168.1.14"`), add a matching entry to `hosts.yaml` for Kubespray, and change the `flavor_id` assignment in `main.tf` to be conditional:
-
-```
-flavor_id   = each.key == "gpu-node" ? var.gpu_reservation : var.reservation
-```
-
-This keeps the `for_each` loop structure, but the GPU node gets its own flavor.
-
-**2. Making the training pod run on the GPU node**
-
-Kubernetes does not automatically know which node has a GPU. You need to tell the scheduler to place the training pod on that specific node. You do this with a `nodeSelector` in the pod spec.
-
-In `train-model.yaml`, the `run-training` template currently looks like:
-
-```yaml
-  - name: run-training
-    outputs:
-      parameters:
-      - name: model-version
-        valueFrom:
-          path: /tmp/model_version
-    container:
-      image: registry.kube-system.svc.cluster.local:5000/gourmetgram-train:latest
-      command: [python, flow.py]
-      env:
-        - name: MLFLOW_TRACKING_URI
-          value: "http://mlflow.gourmetgram-platform.svc.cluster.local:8000"
-```
-
-To pin it to the GPU node, you would add a `nodeSelector` at the **template level** (the same level as `container:`, not inside it). Kubespray labels each node with `kubernetes.io/hostname` using the inventory hostname (e.g. `node1`, `node2`, `node3`). If you added a `"gpu-node"` entry to the `nodes` map in `variables.tf`, its inventory hostname would be `gpu-node`, so you would add:
-
-```yaml
-  - name: run-training
-    nodeSelector:
-      kubernetes.io/hostname: gpu-node
-    outputs:
-      parameters:
-      - name: model-version
-        valueFrom:
-          path: /tmp/model_version
-    container:
-      image: registry.kube-system.svc.cluster.local:5000/gourmetgram-train:latest
-      command: [python, flow.py]
-      env:
-        - name: MLFLOW_TRACKING_URI
-          value: "http://mlflow.gourmetgram-platform.svc.cluster.local:8000"
-```
-
-Alternatively, if the GPU node has been labeled with the NVIDIA device plugin label `nvidia.com/gpu: "true"`, you could match on that instead — which is more portable, because it does not depend on the node's hostname:
-
-```yaml
-    nodeSelector:
-      nvidia.com/gpu: "true"
-```
-
-You would also update the Dockerfile to install the GPU version of PyTorch (replacing the `--index-url https://download.pytorch.org/whl/cpu` line with the appropriate CUDA index URL), and change `map_location=torch.device('cpu')` in `flow.py` to `map_location=torch.device('cuda')`.
+This completes Part 1 of the model lifecycle!
 
 :::
-
