@@ -52,7 +52,7 @@ and in *BOTH* cells below, replace **netID** with your own net ID, then run to r
 # replace netID in this line
 openstack reservation lease create lease_mlops_netID \
   --start-date "$(date -u '+%Y-%m-%d %H:%M')" \
-  --end-date "$(date -u -d '+1 days' '+%Y-%m-%d %H:%M')" \
+  --end-date "$(date -u -d '+12 hours' '+%Y-%m-%d %H:%M')" \
   --reservation "resource_type=flavor:instance,flavor_id=$(openstack flavor show m1.medium -f value -c id),amount=3"
 ```
 :::
@@ -60,7 +60,7 @@ openstack reservation lease create lease_mlops_netID \
 
 ::: {.cell .markdown}
 
-and print the UUID of the reserved "flavor":
+and print the UUID of the reserved "flavor" (again, replace **netID** with your own):
 
 :::
 
@@ -284,6 +284,13 @@ Then, let's preview the changes that Terraform will make to our infrastructure. 
 terraform plan
 ```
 :::
+
+::: {.cell .markdown}
+
+Notice that at this stage, Terraform has e.g. read in the IDs of the security groups we defined in `data` blocks. If we e.g. asked it to read in a security group names "allow-XXX" and there was no such security group in the project, it would warn us in the `plan` output.
+
+:::
+
 
 ::: {.cell .markdown}
 

@@ -20,7 +20,7 @@ Our experiment will use the following automated deployment and lifecycle managem
 * Argo CD: A declarative GitOps continuous delivery tool for Kubernetes that automatically syncs and deploys applications based on the desired state stored in Git repositories.
 * Argo Workflows: A Kubernetes-native workflow engine where you define workflows, which execute tasks inside containers to run pipelines, jobs, or automation processes.
 
-**Note**: that we use Argo CD and Argo Workflows, which are tightly integrated with Kubernetes, because we are working in the context of a Kubernetes deployment. If our service was not deployed in Kubernetes (for example: it was deployed using "plain" Docker containers without a container orchestration framework), we would use other tools for managing the application and model lifecycle.
+**Note**: that we use Argo CD and Argo Workflows, which are tightly integrated with Kubernetes, because we are working in the context of a Kubernetes deployment. If our service was not deployed in Kubernetes (for example: it was deployed using "plain" Docker containers), we would use other tools for managing the application and model lifecycle.
 
 The expected *hands-on* duration of this experiment is 5-6 hours. However, there is an unattended installation step in the middle (Kubernetes setup) that you may need to leave running for several hours. You should plan accordingly, to e.g. leave that stage running while you do something else, then return to finish.
 
@@ -83,8 +83,8 @@ In keeping with good DevOps practices, we will deploy our infrastructure - start
 
 We will use two IaC/CaC tools to prepare our Kubernetes cluster: 
 
-* [Terraform](https://www.terraform.io/), which we'll use to provision the resources on our cloud infrastructure provider. (A popular alternative is [OpenTofu](https://opentofu.org/).)
-* [Ansible](https://github.com/ansible/ansible), which we'll use to configure and deploy Kubernetes, and then to set up the Kubernetes cluster and the services running on it. (A popular alternative is [Salt](https://github.com/saltstack/salt).)
+* [Terraform](https://www.terraform.io/), which we'll use to provision the resources on our cloud infrastructure provider. 
+* [Ansible](https://github.com/ansible/ansible), which we'll use to configure and deploy Kubernetes, and then to set up the Kubernetes cluster and the services running on it. 
 
 both of which are aligned with the principles above.
 
@@ -123,7 +123,7 @@ This repository has the following structure:
 * The `tf` directory includes materials needed for Terraform to provision resources from the cloud provider. This is a "Day 0" setup task.
 * The "Day 1" setup task is to install and configure Kubernetes on the resources. We use Ansible, and the materials are in the `ansible` directory in the `pre_k8s`, `k8s` and `post_k8s` subdirectories. (The `general` directory is just for learning.)
 * The applications that we will be deployed in Kubernetes are defined in the `k8s` directory:
-  * `platform` has all the "accessory" services we need to support our machine learning application. In this example, it has a model registry and the associated database and object store services used by the model registry; more generally "platform" may include experiment tracking, evaluation and monitoring, and other related services.
+  * `platform` has all the "accessory" services we need to support our machine learning application. In this example, it has a model registry (where we save trained model artifacts after they are "built") and the associated database and object store services used by the model registry; more generally "platform" may include experiment tracking, evaluation and monitoring, and other related services.
   * `staging`, `canary`, and `production` are deployments of our GourmetGram application. A new model or application version starts off in `staging`; after some internal tests it may be promoted to `canary` where it is served to some live users; and after further evaluation and monitoring, it may be promoted to `production`. 
 * We use Ansible to "register" these applications in ArgoCD, using the playbooks in the `ansible/argocd` directory. ArgoCD is a continuous delivery tool for Kubernetes that automatically deploys and updates applications based on the latest version of its manifests.
 * From "Day 2" and on, during the lifecycle of the application, we use ArgoCD and Argo Workflows to handle model and application versions, using the pipelines in `workflows`.
@@ -163,10 +163,10 @@ Before we can use Terraform, we'll need to download a Terraform client. The foll
 ```bash
 # runs in Chameleon Jupyter environment
 mkdir -p /work/.local/bin
-wget https://releases.hashicorp.com/terraform/1.10.5/terraform_1.10.5_linux_amd64.zip
-unzip -o -q terraform_1.10.5_linux_amd64.zip
+wget https://releases.hashicorp.com/terraform/1.14.4/terraform_1.14.4_linux_amd64.zip
+unzip -o -q terraform_1.14.4_linux_amd64.zip
 mv terraform /work/.local/bin
-rm terraform_1.10.5_linux_amd64.zip
+rm terraform_1.14.4_linux_amd64.zip
 ```
 
 
@@ -241,6 +241,7 @@ where the value assigned to `cloud` tells Terraform which cloud in the `clouds.y
 
 
 
+
 One nice feature of Terraform is that we can use it to provision resource on multiple clouds. For example, if we wanted to provision resources on both KVM@TACC and CHI@UC (e.g. the training resources on CHI@UC and everything else on KVM@TACC), we might generate application credentials on both sites, and combine them into a `clouds.yaml` like this:
 
 ```
@@ -266,21 +267,30 @@ clouds:
 
 ```
 
-and then in our Terraform configuration, we could specify which OpenStack cloud to use, e.g.
+and then in our Terraform configuration, we could specify which OpenStack cloud to use, e.g. have
 
 ```
 provider "openstack" {
+  alias = "kvm"
   cloud = "kvm"
 }
-```
 
-or 
-
-
-```
 provider "openstack" {
+  alias = "uc"
   cloud = "uc"
 }
+```
+
+and in resource definitions, either
+
+```
+provider = openstack.kvm
+```
+
+or
+
+```
+provider = openstack.uc
 ```
 
 For now, since we are just using one cloud, we will leave our `clouds.yaml` as is.
@@ -459,13 +469,13 @@ and in *BOTH* cells below, replace **netID** with your own net ID, then run to r
 # replace netID in this line
 openstack reservation lease create lease_mlops_netID \
   --start-date "$(date -u '+%Y-%m-%d %H:%M')" \
-  --end-date "$(date -u -d '+1 days' '+%Y-%m-%d %H:%M')" \
+  --end-date "$(date -u -d '+12 hours' '+%Y-%m-%d %H:%M')" \
   --reservation "resource_type=flavor:instance,flavor_id=$(openstack flavor show m1.medium -f value -c id),amount=3"
 ```
 
 
 
-and print the UUID of the reserved "flavor":
+and print the UUID of the reserved "flavor" (again, replace **netID** with your own):
 
 
 
@@ -644,6 +654,11 @@ Then, let's preview the changes that Terraform will make to our infrastructure. 
 # runs in Chameleon Jupyter environment
 terraform plan
 ```
+
+
+Notice that at this stage, Terraform has e.g. read in the IDs of the security groups we defined in `data` blocks. If we e.g. asked it to read in a security group names "allow-XXX" and there was no such security group in the project, it would warn us in the `plan` output.
+
+
 
 
 Finally, we will apply those changes. (We need to add an `-auto-approve` argument because ordinarily, Terraform prompts the user to type "yes" to approve the changes it will make.)
@@ -1243,22 +1258,15 @@ Because the training pod runs inside the same cluster as MLflow, it can reach th
 
 For now, the model "training" job is a dummy training job that just loads and logs a pre-trained model. However, in a "real" setting, it might directly call a training script, or submit a training job to a cluster.
 
-The training pipeline supports different **scenarios** for testing failure cases:
+The training code simply loads a pre-trained model file (`food11.pth`) and logs it to MLflow:
 
 ```python
 @task
-def load_and_train_model(scenario: str = "normal"):
+def load_and_train_model():
     logger = get_run_logger()
-    logger.info(f"Loading model with scenario: {scenario}")
+    logger.info("Loading model...")
 
-    # Map scenario to model file
-    scenario_to_model = {
-        "normal": "food11.pth",
-        "bad-architecture": "bad_model.pth",
-        "oversized": "oversized_model.pth"
-    }
-
-    model_path = scenario_to_model.get(scenario, "food11.pth")
+    model_path = "food11.pth"
     logger.info(f"Loading model from {model_path}...")
     time.sleep(10)
 
@@ -1269,10 +1277,7 @@ def load_and_train_model(scenario: str = "normal"):
     return model
 ```
 
-These scenarios allow us to test how the pipeline handles:
-- **normal**: A valid MobileNetV2 model that works correctly
-- **bad-architecture**: A model with incompatible architecture (will fail in staging tests)
-- **oversized**: A model that exceeds Kubernetes resource limits (will fail deployment)
+Note that the training code itself doesn't know anything about "good" or "bad" models — it just loads whatever `food11.pth` is present. To test failure scenarios (e.g., incompatible architecture, oversized model), we use different **Git branches** of the `gourmetgram-train` repository, each containing a different model variant. We'll see this in action in Part 2.
 
 
 
@@ -1286,7 +1291,7 @@ In a real MLOps pipeline, model evaluation is critical. Instead of hardcoding ev
 * **Extensibility**: Easy to add new tests without modifying the main training code
 * **Reusability**: Same test framework used throughout software engineering
 
-Our evaluation step runs pytest against a test directory:
+Our evaluation step runs pytest against a test directory and saves the complete output as an MLFlow artifact for permanent access:
 
 ```python
 @task
@@ -1295,62 +1300,214 @@ def evaluate_model():
     logger.info("Running pytest test suite for model evaluation...")
 
     try:
-        # Execute pytest and capture results
         result = subprocess.run(
-            ["pytest", "tests/", "-v", "--tb=short"],
+            ["pytest", "tests/", "-v", "-s", "--tb=short"],
             cwd="/app",
             capture_output=True,
             text=True
         )
 
-        all_tests_passed = (result.returncode == 0)
+        # Save complete pytest output as MLFlow artifact
+        full_output = f"Exit Code: {result.returncode}\n"
+        full_output += f"Status: {'PASSED' if result.returncode == 0 else 'FAILED'}\n\n"
+        full_output += result.stdout
+        if result.stderr:
+            full_output += f"\n--- STDERR ---\n{result.stderr}"
 
-        # Extract test counts from pytest output
-        output_lines = result.stdout + result.stderr
-        tests_passed = 0
-        tests_failed = 0
+        pytest_log_path = "/tmp/pytest_output.txt"
+        with open(pytest_log_path, "w") as f:
+            f.write(full_output)
+        mlflow.log_artifact(pytest_log_path, artifact_path="test_logs")
 
-        import re
-        passed_match = re.search(r'(\d+) passed', output_lines)
-        failed_match = re.search(r'(\d+) failed', output_lines)
+        # Parse and log test metrics
+        passed_match = re.search(r'(\d+)\s+passed', result.stdout)
+        failed_match = re.search(r'(\d+)\s+failed', result.stdout)
+        tests_passed = int(passed_match.group(1)) if passed_match else 0
+        tests_failed = int(failed_match.group(1)) if failed_match else 0
 
-        if passed_match:
-            tests_passed = int(passed_match.group(1))
-        if failed_match:
-            tests_failed = int(failed_match.group(1))
-
-        # Log metrics to MLFlow
         mlflow.log_metric("tests_passed", tests_passed)
         mlflow.log_metric("tests_failed", tests_failed)
         mlflow.log_metric("tests_total", tests_passed + tests_failed)
 
-        return all_tests_passed
-
+        return result.returncode == 0
     except Exception as e:
-        logger.error(f"Failed to execute pytest: {e}")
+        logger.error(f"Failed to run pytest: {e}")
         return False
 ```
 
-The tests themselves live in a `tests/` directory. For this tutorial, we use "dummy" tests that simulate realistic evaluation behavior:
+
+
+### Understanding the pytest test suite
+
+The test suite is organized into two files:
+
+**tests/test_model_structure.py** — Validates that the model can be loaded and has the expected size:
 
 ```python
-# tests/test_model_accuracy.py
-import random
+@pytest.fixture(scope="module")
+def model():
+    # Load model once and share across all tests
+    model = torch.load("food11.pth", weights_only=False, map_location=torch.device('cpu'))
+    return model
 
-def test_model_accuracy():
-    """Simulate model accuracy test with probabilistic results"""
-    # 70% chance of high accuracy (0.85), 30% chance of lower accuracy (0.75)
-    simulated_accuracy = random.choices([0.85, 0.75], weights=[0.7, 0.3])[0]
-    assert simulated_accuracy >= 0.80, f"Accuracy {simulated_accuracy} below threshold"
+def test_model_loadable():
+    # Verify model file exists and is loadable
+    model = torch.load("food11.pth", weights_only=False, map_location=torch.device('cpu'))
+    assert model is not None
+
+def test_model_parameters(model):
+    # Verify model has expected parameter count
+    total_params = sum(p.numel() for p in model.parameters())
+    assert 2_000_000 < total_params < 3_000_000
 ```
 
-In a real setting, these tests would:
-* Load a validation dataset
-* Run inference on the model
-* Calculate actual metrics (accuracy, precision, recall, F1)
-* Verify the model meets minimum quality thresholds
+**Key pattern: Pytest Fixtures**
 
-The key pattern here is: **integrate established testing frameworks into your MLOps pipeline**, rather than reinventing evaluation logic.
+Notice the `@pytest.fixture` decorator on the `model()` function. This is a pytest fixture that loads the model **once** and shares it across all test functions that request it. This is more efficient than loading the model separately in each test.
+
+Tests that need the model simply accept `model` as a parameter:
+
+```python
+def test_model_parameters(model):  # ← pytest injects the fixture
+    # model is already loaded, no need to load again
+    total_params = sum(p.numel() for p in model.parameters())
+    assert 2_000_000 < total_params < 3_000_000
+```
+
+The `test_model_loadable()` test doesn't use the fixture because it specifically tests the loading process itself.
+
+**tests/test_model_accuracy.py** — Validates model performance:
+
+This test uses probabilistic behavior to simulate real-world ML model variability:
+
+```python
+def test_model_accuracy():
+    # 70% chance of 0.85 accuracy (passes)
+    # 30% chance of 0.75 accuracy (fails)
+    if random.random() < 0.7:
+        accuracy = 0.85
+    else:
+        accuracy = 0.75
+
+    assert accuracy >= 0.80
+```
+
+This means the same model can pass tests most of the time but occasionally fail — demonstrating why production ML pipelines need proper monitoring and retry mechanisms.
+
+**What happens when tests fail?**
+
+When we deploy the bad architecture model (from the `mlops-bad-arch` branch), the `test_model_parameters()` test will fail because a ResNet18 model has ~11.7M parameters, far outside the expected 2–3M range:
+
+```
+FAILED test_model_structure.py::test_model_parameters - AssertionError: Model has 11,181,642 parameters (expected 2,000,000 to 3,000,000)
+```
+
+This catches the problem during training, before the model even gets registered to MLFlow. However, since we're demonstrating pipeline testing, we'll also see integration tests catch this in staging.
+
+
+
+
+### Viewing test results and logs
+
+After the training workflow completes, you can view detailed test results in two places:
+
+**1. MLFlow UI (Permanent Storage)**
+
+Navigate to the MLFlow server and find your training run:
+
+```bash
+# Get MLFlow URL
+echo "http://$(head -1 /etc/hosts | awk '{print $1}'):8000"
+```
+
+In the MLFlow UI:
+
+1. Click on the "food11-classifier" experiment
+2. Click on your run (most recent at the top)
+3. Navigate to the "Artifacts" tab
+4. You'll see several artifact directories:
+   - **test_logs/pytest_output.txt**: Complete pytest output with all test results
+   - **model/**: The trained model artifacts
+
+Download and view `pytest_output.txt` to see detailed test results:
+
+```
+Exit Code: 0
+Status: PASSED
+
+============================= test session starts ==============================
+collected 3 items
+
+tests/test_model_structure.py::test_model_loadable PASSED              [ 33%]
+tests/test_model_structure.py::test_model_parameters PASSED            [ 66%]
+tests/test_model_accuracy.py::test_model_accuracy PASSED               [100%]
+
+============================== 3 passed in 2.34s ===============================
+```
+
+**2. Argo Workflows UI (Live Logs)**
+
+You can also view logs in real-time during workflow execution:
+
+```bash
+# Get Argo Workflows URL
+echo "http://$(head -1 /etc/hosts | awk '{print $1}'):2746"
+```
+
+In the Argo UI:
+
+1. Click on the "train-model-xxxxx" workflow
+2. Click on the "run-training" pod
+3. View the logs tab
+
+The logs show the same pytest output inline, plus additional Prefect logging information. However, these logs are only available while the workflow pods exist. For permanent access, use the MLFlow artifacts.
+
+**Key Differences:**
+
+| Location | Availability | Content |
+|----------|--------------|---------|
+| MLFlow Artifacts | Permanent (stored in MinIO) | Complete pytest output |
+| Argo Workflow Logs | Temporary (until pod deleted) | Real-time logs + pytest output |
+
+**Best Practice**: Always check MLFlow artifacts for historical debugging. Use Argo logs for watching live execution.
+
+
+
+
+### Example: debugging test failures
+
+If a model fails tests, the `pytest_output.txt` artifact will show exactly what went wrong. For example, when using the `mlops-bad-arch` branch (ResNet model with ~11.7M parameters):
+
+```
+Exit Code: 1
+Status: FAILED
+
+============================= test session starts ==============================
+collected 3 items
+
+tests/test_model_structure.py::test_model_loadable PASSED              [ 33%]
+tests/test_model_structure.py::test_model_parameters FAILED            [ 66%]
+
+=================================== FAILURES ===================================
+_________________________ test_model_parameters __________________________
+
+model = ResNet(...)
+
+    def test_model_parameters(model):
+        total_params = sum(p.numel() for p in model.parameters())
+        min_params = 2_000_000
+        max_params = 3_000_000
+        assert min_params < total_params < max_params, \
+>           f"Model has {total_params:,} parameters (expected {min_params:,} to {max_params:,})"
+E       AssertionError: Model has 11,181,642 parameters (expected 2,000,000 to 3,000,000)
+
+tests/test_model_structure.py:44: AssertionError
+========================= short test summary info ============================
+FAILED tests/test_model_structure.py::test_model_parameters
+========================= 1 failed, 1 passed in 1.82s ==========================
+```
+
+This makes it easy to identify why a model didn't get registered — in this case, the model has far more parameters than the expected MobileNetV2 range.
 
 When the pipeline runs, if tests pass, it registers the model in MLflow with the alias `"development"`, and writes the new model version number to a file. Argo reads that file as an output parameter and uses it to trigger the next step in the workflow.
 
@@ -1427,18 +1584,7 @@ This template:
 - Sets the MLFlow tracking URI to reach the MLFlow service inside the cluster
 - Captures the model version from `/tmp/model_version` as an output parameter
 
-The training script writes the model version to `/tmp/model_version` after successful registration:
-
-```python
-if __name__ == "__main__":
-    # Support command-line argument for scenario (default: normal)
-    scenario = sys.argv[1] if len(sys.argv) > 1 else "normal"
-    version = ml_pipeline_flow(scenario)
-    
-    # Write model version for workflow to read
-    with open("/tmp/model_version", "w") as f:
-        f.write("" if version is None else str(version))
-```
+The training script writes the model version to `/tmp/model_version` after successful registration. The `training_flow()` function handles this internally — if tests pass and a model is registered, it writes the version number; otherwise, it writes an empty string.
 
 
 
@@ -1521,7 +1667,7 @@ You can schedule training to run periodically using Argo's `CronWorkflow` resour
 apiVersion: argoproj.io/v1alpha1
 kind: CronWorkflow
 metadata:
-  name: train-model-cron
+  name: cron-train
 spec:
   schedule: "0 2 * * *"  # Run at 2 AM every day
   workflowSpec:
@@ -1845,15 +1991,6 @@ This command builds a training container from the `mlops-bad-arch` branch. When 
 6. **Integration test runs and FAILS**: The application expects MobileNetV2's feature dimensions (1280), but the ResNet model has 512 dimensions
 7. The `test-staging` workflow detects the failure
 8. **Revert workflow is triggered automatically**
-
-**Observe in Argo Workflows:**
-
-* The `test-staging` workflow shows:
-  - deployment successful
-  - integration-test FAILED
-  - (resource-test and load-test are skipped)
-  - revert-on-failure step executes
-* A new `revert-staging` workflow appears
 
 **What the revert workflow does:**
 

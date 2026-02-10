@@ -11,8 +11,8 @@ In keeping with good DevOps practices, we will deploy our infrastructure - start
 
 We will use two IaC/CaC tools to prepare our Kubernetes cluster: 
 
-* [Terraform](https://www.terraform.io/), which we'll use to provision the resources on our cloud infrastructure provider. (A popular alternative is [OpenTofu](https://opentofu.org/).)
-* [Ansible](https://github.com/ansible/ansible), which we'll use to configure and deploy Kubernetes, and then to set up the Kubernetes cluster and the services running on it. (A popular alternative is [Salt](https://github.com/saltstack/salt).)
+* [Terraform](https://www.terraform.io/), which we'll use to provision the resources on our cloud infrastructure provider. 
+* [Ansible](https://github.com/ansible/ansible), which we'll use to configure and deploy Kubernetes, and then to set up the Kubernetes cluster and the services running on it. 
 
 both of which are aligned with the principles above.
 
@@ -55,7 +55,7 @@ This repository has the following structure:
 * The `tf` directory includes materials needed for Terraform to provision resources from the cloud provider. This is a "Day 0" setup task.
 * The "Day 1" setup task is to install and configure Kubernetes on the resources. We use Ansible, and the materials are in the `ansible` directory in the `pre_k8s`, `k8s` and `post_k8s` subdirectories. (The `general` directory is just for learning.)
 * The applications that we will be deployed in Kubernetes are defined in the `k8s` directory:
-  * `platform` has all the "accessory" services we need to support our machine learning application. In this example, it has a model registry and the associated database and object store services used by the model registry; more generally "platform" may include experiment tracking, evaluation and monitoring, and other related services.
+  * `platform` has all the "accessory" services we need to support our machine learning application. In this example, it has a model registry (where we save trained model artifacts after they are "built") and the associated database and object store services used by the model registry; more generally "platform" may include experiment tracking, evaluation and monitoring, and other related services.
   * `staging`, `canary`, and `production` are deployments of our GourmetGram application. A new model or application version starts off in `staging`; after some internal tests it may be promoted to `canary` where it is served to some live users; and after further evaluation and monitoring, it may be promoted to `production`. 
 * We use Ansible to "register" these applications in ArgoCD, using the playbooks in the `ansible/argocd` directory. ArgoCD is a continuous delivery tool for Kubernetes that automatically deploys and updates applications based on the latest version of its manifests.
 * From "Day 2" and on, during the lifecycle of the application, we use ArgoCD and Argo Workflows to handle model and application versions, using the pipelines in `workflows`.
@@ -107,10 +107,10 @@ Before we can use Terraform, we'll need to download a Terraform client. The foll
 ```bash
 # runs in Chameleon Jupyter environment
 mkdir -p /work/.local/bin
-wget https://releases.hashicorp.com/terraform/1.10.5/terraform_1.10.5_linux_amd64.zip
-unzip -o -q terraform_1.10.5_linux_amd64.zip
+wget https://releases.hashicorp.com/terraform/1.14.4/terraform_1.14.4_linux_amd64.zip
+unzip -o -q terraform_1.14.4_linux_amd64.zip
 mv terraform /work/.local/bin
-rm terraform_1.10.5_linux_amd64.zip
+rm terraform_1.14.4_linux_amd64.zip
 ```
 :::
 
@@ -195,6 +195,7 @@ provider "openstack" {
 
 where the value assigned to `cloud` tells Terraform which cloud in the `clouds.yaml` file to authenticate to.
 
+
 :::
 
 ::: {.cell .markdown}
@@ -224,21 +225,30 @@ clouds:
 
 ```
 
-and then in our Terraform configuration, we could specify which OpenStack cloud to use, e.g.
+and then in our Terraform configuration, we could specify which OpenStack cloud to use, e.g. have
 
 ```
 provider "openstack" {
+  alias = "kvm"
   cloud = "kvm"
 }
-```
 
-or 
-
-
-```
 provider "openstack" {
+  alias = "uc"
   cloud = "uc"
 }
+```
+
+and in resource definitions, either
+
+```
+provider = openstack.kvm
+```
+
+or
+
+```
+provider = openstack.uc
 ```
 
 For now, since we are just using one cloud, we will leave our `clouds.yaml` as is.
