@@ -16,7 +16,7 @@ We will use two IaC/CaC tools to prepare our Kubernetes cluster:
 
 both of which are aligned with the principles above.
 
-In this notebook, which will run in the Chameleon Jupyter environment, we will install and configure these tools in that environment. This is a *one-time* step that an engineer would ordinarily do just once, on their own computer.
+In this notebook, which will run in the Chameleon Jupyter environment, we will install and configure Terraform in our environment, and in a later notebook, we will install and configure Ansible in this same environment. This is a *one-time* step that an engineer would ordinarily do just once, when "onboarding", on their own computer.
 
 > **Note**: This is a Bash notebook, so you will run it with a Bash kernel. You can change the kernel (if needed) by clicking the kernel name in the top right of the Jupyter interface.
 
@@ -283,28 +283,9 @@ cp clouds.yaml /work/gourmetgram-iac/tf/kvm/clouds.yaml
 
 ::: {.cell .markdown}
 
-### Install and configure Ansible
-
 :::
 
-
-::: {.cell .markdown}
-
-Next, we'll set up Ansible! We will similarly need to get the Ansible client, which we install in the following cell:
-
-:::
-
-::: {.cell .code}
-```bash
-# runs in Chameleon Jupyter environment
-PYTHONUSERBASE=/work/.local pip install --user ansible-core==2.16.9 ansible==9.8.0
-```
-:::
-
-
-::: {.cell .markdown}
-
-The Ansible client has been installed to: `/work/.local/bin`. In order to run `ansible-playbook` commands, we will have to add this directory to our `PATH`, which tells the system where to look for executable files. We also need to let it know where to find the corresponding Python packages.
+The Terraform executable has been installed to a location that is not the system-wide location for executable files: `/work/.local/bin`. In order to run `terraform` commands, we will have to add this directory to our `PATH`, which tells the system where to look for executable files.
 
 :::
 
@@ -313,91 +294,6 @@ The Ansible client has been installed to: `/work/.local/bin`. In order to run `a
 ```bash
 # runs in Chameleon Jupyter environment
 export PATH=/work/.local/bin:$PATH
-export PYTHONUSERBASE=/work/.local
-```
-:::
-
-
-::: {.cell .markdown}
-
-Let's make sure we can now run `ansible-playbook` commands. The following cell should print usage information for the `ansible-playbook` command, since we run it with `--help`:
-:::
-
-
-::: {.cell .code}
-```bash
-# runs in Chameleon Jupyter environment
-ansible-playbook --help
-```
-:::
-
-
-
-::: {.cell .markdown}
-
-Now, we'll configure Ansible. The `ansible.cfg` configuration file modifies the default behavior of the Ansible commands we're going to run. Open this file using the file browser on the left side.
-
-:::
-
-::: {.cell .markdown}
-
-
-Our configuration will include:
-
-```
-[defaults]
-stdout_callback = yaml
-inventory = /work/gourmetgram-iac/ansible/inventory.yaml
-
-```
-
-The first line is just a matter of preference, and directs the Ansible client to display output from commands in a more structured, readable way. The second line specifies the location of a default *inventory* file - the list of hosts that Ansible will configure.
-
-It will also include:
-
-```
-[ssh_connection]
-ssh_args = -o ControlMaster=auto -o ControlPersist=60s \
-           -o StrictHostKeyChecking=off -o UserKnownHostsFile=/dev/null \
-           -o ForwardAgent=yes \
-           -o ProxyCommand="ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -W %h:%p cc@A.B.C.D"
-pipelining = True
-```
-
-which says that when Ansible uses SSH to connect to the resources it is managing, it should "jump" through `A.B.C.D` and forward the keys from this environment, through `A.B.C.D`, to the final destination. (Also, we disable host key checking when using SSH, and configure it to minimize the number of SSH sessions and the number of network operations wherever possible.)
-
-You will need to edit `A.B.C.D.` *after* you provision your resources, and replace it with the floating IP assigned to your experiment.
-
-*After* you have edited the floating IP and saved the `ansible.cfg` file, you can move it - Ansible will look in either `~/.ansible.cfg` or the directory that we run Ansible commands from, we will use the latter:
-
-:::
-
-::: {.cell .code}
-```bash
-# runs in Chameleon Jupyter environment
-# ONLY AFTER YOU HAVE PROVISIONED RESOURCES AND UPDATED THE CFG
-cp ansible.cfg /work/gourmetgram-iac/ansible/ansible.cfg
-```
-:::
-
-::: {.cell .markdown}
-
-### Configure the PATH
-
-:::
-
-::: {.cell .markdown}
-
-Both Terraform and Ansible executables have been installed to a location that is not the system-wide location for executable files: `/work/.local/bin`. In order to run `terraform` or `ansible-playbook` commands, we will have to add this directory to our `PATH`, which tells the system where to look for executable files.
-
-:::
-
-
-::: {.cell .code}
-```bash
-# runs in Chameleon Jupyter environment
-export PATH=/work/.local/bin:$PATH
-export PYTHONUSERBASE=/work/.local
 ```
 :::
 
@@ -406,22 +302,4 @@ export PYTHONUSERBASE=/work/.local
 and, we'll have to do that in *each new Bash session*.
 
 :::
-
-::: {.cell .markdown}
-
-### Prepare Kubespray
-
-To install Kubernetes, we'll use Kubespray, which is a set of Ansible playbooks for deploying Kubernetes. We'll also make sure we have its dependencies now:
-
-:::
-
-
-::: {.cell .code}
-```bash
-# runs in Chameleon Jupyter environment
-PYTHONUSERBASE=/work/.local pip install --user -r /work/gourmetgram-iac/ansible/k8s/kubespray/requirements.txt
-```
-:::
-
-
 

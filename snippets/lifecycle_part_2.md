@@ -31,7 +31,7 @@ In Argo Workflows:
 
 Then, open the staging service:
 
-* Visit `http://A.B.C.D:8081` (substituting the value of your floating IP)
+* Visit `http://A.B.C.D:8082` (substituting the value of your floating IP)
 
 [This version of the `gourmetgram` app](https://github.com/teaching-on-testbeds/gourmetgram/tree/workflow) has a `versions` endpoint:
 
@@ -47,7 +47,7 @@ def version():
 
 ```
 
-So you can visit `http://A.B.C.D:8081/version`, and you should see the model version you just promoted to staging.
+So you can visit `http://A.B.C.D:8082/version`, and you should see the model version you just promoted to staging.
 
 :::
 
@@ -242,7 +242,7 @@ Click on the new `promote-model` workflow to watch it execute:
 
 After the workflow completes, verify the promotion:
 
-* Visit `http://A.B.C.D:8080/version` (canary runs on port 8080)
+* Visit `http://A.B.C.D:8081/version` (canary runs on port 8081)
 * You should see the same model version that was just tested in staging
 
 In the MLFlow UI:
@@ -325,7 +325,7 @@ steps:
 
 **After revert completes:**
 
-* Visit `http://A.B.C.D:8081/version`
+* Visit `http://A.B.C.D:8082/version`
 * You should see the previous working version (not the bad model version)
 * The bad model version is still in MLFlow, but without the "staging" alias
 * The staging environment is operational again

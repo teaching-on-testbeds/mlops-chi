@@ -22,7 +22,7 @@ Our experiment will use the following automated deployment and lifecycle managem
 
 **Note**: that we use Argo CD and Argo Workflows, which are tightly integrated with Kubernetes, because we are working in the context of a Kubernetes deployment. If our service was not deployed in Kubernetes (for example: it was deployed using "plain" Docker containers), we would use other tools for managing the application and model lifecycle.
 
-The expected *hands-on* duration of this experiment is 5-6 hours. However, there is an unattended installation step in the middle (Kubernetes setup) that you may need to leave running for several hours. You should plan accordingly, to e.g. leave that stage running while you do something else, then return to finish.
+The expected *hands-on* duration of this experiment is 5-6 hours. However, there is an unattended installation step in the middle (Kubernetes setup) that you may need to leave running for 0.5-1 hours. You should plan accordingly, to e.g. leave that stage running while you do something else, then return to finish.
 
 To run this experiment, you should have already created an account on Chameleon, and become part of a project. You should also have added your SSH key to the KVM@TACC site.
 
@@ -88,7 +88,7 @@ We will use two IaC/CaC tools to prepare our Kubernetes cluster:
 
 both of which are aligned with the principles above.
 
-In this notebook, which will run in the Chameleon Jupyter environment, we will install and configure these tools in that environment. This is a *one-time* step that an engineer would ordinarily do just once, on their own computer.
+In this notebook, which will run in the Chameleon Jupyter environment, we will install and configure Terraform in our environment, and in a later notebook, we will install and configure Ansible in this same environment. This is a *one-time* step that an engineer would ordinarily do just once, when "onboarding", on their own computer.
 
 > **Note**: This is a Bash notebook, so you will run it with a Bash kernel. You can change the kernel (if needed) by clicking the kernel name in the top right of the Jupyter interface.
 
@@ -317,115 +317,18 @@ cp clouds.yaml /work/gourmetgram-iac/tf/kvm/clouds.yaml
 ```
 
 
-### Install and configure Ansible
 
-
-
-
-Next, we'll set up Ansible! We will similarly need to get the Ansible client, which we install in the following cell:
-
-
-```bash
-# runs in Chameleon Jupyter environment
-PYTHONUSERBASE=/work/.local pip install --user ansible-core==2.16.9 ansible==9.8.0
-```
-
-
-
-The Ansible client has been installed to: `/work/.local/bin`. In order to run `ansible-playbook` commands, we will have to add this directory to our `PATH`, which tells the system where to look for executable files. We also need to let it know where to find the corresponding Python packages.
+The Terraform executable has been installed to a location that is not the system-wide location for executable files: `/work/.local/bin`. In order to run `terraform` commands, we will have to add this directory to our `PATH`, which tells the system where to look for executable files.
 
 
 
 ```bash
 # runs in Chameleon Jupyter environment
 export PATH=/work/.local/bin:$PATH
-export PYTHONUSERBASE=/work/.local
-```
-
-
-
-Let's make sure we can now run `ansible-playbook` commands. The following cell should print usage information for the `ansible-playbook` command, since we run it with `--help`:
-
-
-```bash
-# runs in Chameleon Jupyter environment
-ansible-playbook --help
-```
-
-
-
-
-Now, we'll configure Ansible. The `ansible.cfg` configuration file modifies the default behavior of the Ansible commands we're going to run. Open this file using the file browser on the left side.
-
-
-
-
-Our configuration will include:
-
-```
-[defaults]
-stdout_callback = yaml
-inventory = /work/gourmetgram-iac/ansible/inventory.yaml
-
-```
-
-The first line is just a matter of preference, and directs the Ansible client to display output from commands in a more structured, readable way. The second line specifies the location of a default *inventory* file - the list of hosts that Ansible will configure.
-
-It will also include:
-
-```
-[ssh_connection]
-ssh_args = -o ControlMaster=auto -o ControlPersist=60s \
-           -o StrictHostKeyChecking=off -o UserKnownHostsFile=/dev/null \
-           -o ForwardAgent=yes \
-           -o ProxyCommand="ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -W %h:%p cc@A.B.C.D"
-pipelining = True
-```
-
-which says that when Ansible uses SSH to connect to the resources it is managing, it should "jump" through `A.B.C.D` and forward the keys from this environment, through `A.B.C.D`, to the final destination. (Also, we disable host key checking when using SSH, and configure it to minimize the number of SSH sessions and the number of network operations wherever possible.)
-
-You will need to edit `A.B.C.D.` *after* you provision your resources, and replace it with the floating IP assigned to your experiment.
-
-*After* you have edited the floating IP and saved the `ansible.cfg` file, you can move it - Ansible will look in either `~/.ansible.cfg` or the directory that we run Ansible commands from, we will use the latter:
-
-
-```bash
-# runs in Chameleon Jupyter environment
-# ONLY AFTER YOU HAVE PROVISIONED RESOURCES AND UPDATED THE CFG
-cp ansible.cfg /work/gourmetgram-iac/ansible/ansible.cfg
-```
-
-
-### Configure the PATH
-
-
-
-Both Terraform and Ansible executables have been installed to a location that is not the system-wide location for executable files: `/work/.local/bin`. In order to run `terraform` or `ansible-playbook` commands, we will have to add this directory to our `PATH`, which tells the system where to look for executable files.
-
-
-
-```bash
-# runs in Chameleon Jupyter environment
-export PATH=/work/.local/bin:$PATH
-export PYTHONUSERBASE=/work/.local
 ```
 
 
 and, we'll have to do that in *each new Bash session*.
-
-
-
-### Prepare Kubespray
-
-To install Kubernetes, we'll use Kubespray, which is a set of Ansible playbooks for deploying Kubernetes. We'll also make sure we have its dependencies now:
-
-
-
-```bash
-# runs in Chameleon Jupyter environment
-PYTHONUSERBASE=/work/.local pip install --user -r /work/gourmetgram-iac/ansible/k8s/kubespray/requirements.txt
-```
-
 
 
 
@@ -637,6 +540,10 @@ export TF_VAR_reservation=00000000-0000-0000-0000-000000000000
 ```
 
 
+You'll use Terraform again at the end of this experiment to delete your Terraform-managed resources, and you'll need these variables again then. Open the last notebook in the series and copy/paste the values in the cell above into the equivalent cell there.
+
+
+
 We should confirm that our planned configuration is valid:
 
 
@@ -700,6 +607,117 @@ terraform apply -replace='openstack_compute_instance_v2.nodes["node3"]' -auto-ap
 Similarly, we could make changes to the infrastructure description in the `main.tf` file and then use `terraform apply` to update our cloud infrastructure. Terraform would determine which resources can be updated in place, which should be destroyed and recreated, and which should be left alone.
 
 This declarative approach - where we define the desired end state and let the tool get there - is much more robust than imperative-style tools for deploying infrastructure (`openstack` CLI, `python-chi` Python API) (and certainly more robust than ClickOps!).
+
+
+
+### Install and configure Ansible
+
+
+
+
+Next, we'll set up Ansible! We will similarly to get the Ansible client, which we install in the following cell:
+
+
+```bash
+# runs in Chameleon Jupyter environment
+PYTHONUSERBASE=/work/.local pip install --user ansible-core==2.16.9 ansible==9.8.0
+```
+
+
+
+The Ansible client has been installed to: `/work/.local/bin`. In order to run `ansible-playbook` commands, we will have to add this directory to our `PATH`, which tells the system where to look for executable files. We also need to let it know where to find the corresponding Python packages.
+
+
+
+```bash
+# runs in Chameleon Jupyter environment
+export PATH=/work/.local/bin:$PATH
+export PYTHONUSERBASE=/work/.local
+```
+
+
+
+Let's make sure we can now run `ansible-playbook` commands. The following cell should print usage information for the `ansible-playbook` command, since we run it with `--help`:
+
+
+```bash
+# runs in Chameleon Jupyter environment
+ansible-playbook --help
+```
+
+
+
+
+Now, we'll configure Ansible. The `ansible.cfg` configuration file modifies the default behavior of the Ansible commands we're going to run. Open this file using the file browser on the left side.
+
+
+
+
+Our configuration will include:
+
+```
+[defaults]
+stdout_callback = yaml
+inventory = /work/gourmetgram-iac/ansible/inventory.yaml
+
+```
+
+The first line is just a matter of preference, and directs the Ansible client to display output from commands in a more structured, readable way. The second line specifies the location of a default *inventory* file - the list of hosts that Ansible will configure.
+
+It will also include:
+
+```
+[ssh_connection]
+ssh_args = -o ControlMaster=auto -o ControlPersist=60s \
+           -o StrictHostKeyChecking=off -o UserKnownHostsFile=/dev/null \
+           -o ForwardAgent=yes \
+           -o ProxyCommand="ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -W %h:%p cc@A.B.C.D"
+pipelining = True
+```
+
+which says that when Ansible uses SSH to connect to the resources it is managing, it should "jump" through `A.B.C.D` and forward the keys from this environment, through `A.B.C.D`, to the final destination. (Also, we disable host key checking when using SSH, and configure it to minimize the number of SSH sessions and the number of network operations wherever possible.)
+
+Now that you have provisioned resources, edit `A.B.C.D.`, and replace it with the floating IP assigned to your experiment. Then, save the updated config file.
+
+Ansible will look in either `~/.ansible.cfg` or the directory that we run Ansible commands from, we will use the latter:
+
+
+```bash
+# runs in Chameleon Jupyter environment
+cp ansible.cfg /work/gourmetgram-iac/ansible/ansible.cfg
+```
+
+
+### Configure the PATH
+
+
+
+Both Terraform and Ansible executables have been installed to a location that is not the system-wide location for executable files: `/work/.local/bin`. In order to run `terraform` or `ansible-playbook` commands, we will have to add this directory to our `PATH`, which tells the system where to look for executable files.
+
+
+
+```bash
+# runs in Chameleon Jupyter environment
+export PATH=/work/.local/bin:$PATH
+export PYTHONUSERBASE=/work/.local
+```
+
+
+and, we'll have to do that in *each new Bash session*.
+
+
+
+### Prepare Kubespray
+
+To install Kubernetes, we'll use Kubespray, which is a set of Ansible playbooks for deploying Kubernetes. We'll also make sure we have its dependencies now:
+
+
+
+```bash
+# runs in Chameleon Jupyter environment
+PYTHONUSERBASE=/work/.local pip install --user -r /work/gourmetgram-iac/ansible/k8s/kubespray/requirements.txt
+```
+
 
 
 
@@ -871,7 +889,7 @@ Then, we can run the Kubespray playbook! Inside the `ansible/k8s` subdirectory:
 * we have a "copy" of Kubespray as a submodule
 * and we have a minimal `inventory` directory, which describes the specific Kubespray configuration for our cluster
 
-The following cell will run for a long time - potentially for hours! - and install Kubernetes on the three-node cluster.
+The following cell will run for a long time - potentially up to an hour! - and install Kubernetes on the three-node cluster.
 
 When it is finished the "PLAY RECAP" should indicate that none of the tasks failed.
 
@@ -897,7 +915,16 @@ After our Kubernetes install is complete, we run some additional tasks to furthe
 
 * Configure the `kubectl` command so that we can run it directly on "node1" as the `cc` user, and allow the `cc` user to run Docker commands.
 * Configure the Kubernetes dashboard, which we can use to monitor our cluster.
-* Install [ArgoCD](https://argo-cd.readthedocs.io/en/stable/), [Argo Workflows](https://argoproj.github.io/workflows/), and [Argo Events](https://argoproj.github.io/events/). We will use Argo CD for application and service bootstrapping, and Argo Events/Workflows for application lifecycle management on our Kubernetes cluster.
+* Install [ArgoCD](https://argo-cd.readthedocs.io/en/stable/) CLI, [Argo Workflows](https://argoproj.github.io/workflows/), and [Argo Events](https://argoproj.github.io/events/). (Argo CD itself was already installed with Kubespray.) We will use Argo CD for application and service bootstrapping, and Argo Events/Workflows for application lifecycle management on our Kubernetes cluster.
+
+
+
+```bash
+# runs in Chameleon Jupyter environment
+export PATH=/work/.local/bin:$PATH
+export PYTHONUSERBASE=/work/.local
+```
+
 
 In the output below, make a note of the Kubernetes dashboard token and the Argo admin password, both of which we will need in the next steps.
 
@@ -912,7 +939,7 @@ ansible-playbook -i inventory.yml post_k8s/post_k8s_configure.yml
 
 
 
-### Access the Kubernetes dashboard (optional)
+### Access the Kubernetes dashboard
 
 To check on our Kubernetes deployment, let's keep an eye on the dashboard. 
 
@@ -957,7 +984,7 @@ For now, there is not much of interest in the dashboard. You can see some Kubern
 
 
 
-### Access the ArgoCD dashboard (optional)
+### Access the ArgoCD dashboard
 
 Similarly, we may access the Argo CD dashboard. In the following command, substitute
 
@@ -993,9 +1020,7 @@ For now, there is not much of interest in Argo CD. We have not yet configured Ar
 
 
 
-
-
-### Access the Argo Workflows dashboard (optional)
+### Access the Argo Workflows dashboard
 
 Finally, we may access the Argo Workflows dashboard. In the following command, substitute
 
@@ -1036,7 +1061,7 @@ With our Kubernetes cluster up and running, we are ready to deploy applications 
 
 We are going to use ArgoCD to manage applications on our cluster. ArgoCD monitors "applications" that are defined as Kubernetes manifests in Git repositories. When the application manifest changes (for example, if we increase the number of replicas, change a container image to a different version, or give a pod more memory), ArgoCD will automatically apply these changes to our deployment.
 
-Although ArgoCD itself will manage the application lifecycle once started, we are going to use Ansible as a configuration tool to set up our applications in ArgoCD in the first place. So, in this notebook we run a series of Ansible playbooks to set up ArgoCD applications.
+ArgoCD itself will manage the application lifecycle once started. But to set up our applications in ArgoCD in the first place, we are going to use Ansible as a configuration tool. So, in this notebook we run a series of Ansible playbooks to set up ArgoCD applications.
 
 ![Using ArgoCD for apps and services.](images/step3-argocd.svg)
 
@@ -1053,7 +1078,14 @@ export ANSIBLE_ROLES_PATH=roles
 
 First, we will deploy our GourmetGram "platform". This has all the "accessory" services we need to support our machine learning application. 
 
-In our example, it has a model registry (MLFlow), a database (Postgres), and an object store (MinIO) for storing model artifacts; more generally it may include experiment tracking, evaluation and monitoring, and other related services.
+In our example, it has
+
+* a model registry (MLFlow),
+* a database (Postgres) that is used by MLFlow to keep track of model metadata,
+* an object store (MinIO) that is used by MLFlow for storing trained model artifacts.
+* and a Kubernetes `Gateway` and `HTTPRoute`, which act as the single external entry point into the cluster and control how user traffic is routed to applications. This will direct a share of traffic to our "canary" service.
+
+More generally, "platform" may include other shared services used by multiple teams, including experiment tracking, evaluation and monitoring, and similar related services.
 
 
 
@@ -1091,7 +1123,7 @@ This general pattern:
 
 can be applied to a wide variety of environment-specific configurations. It can also be used anything that shouldn't be included in a Git repository. For example: if your deployment needs a secret application credential, you can store in a separate `.env` file that is available to your Ansible client (not in a Git repository), get Ansible to read it into a variable, and then use ArgoCD + Helm to substitute that secret where needed in your Kubernetes application definition.
 
-**Deployment with secrets**: our deployment includes some services that require authentication, e.g. the MinIO object store. We don't want to include passwords or other secrets in our Git repository, either! To address this, we will have Ansible generate a secret password and register it with Kubernetes (and print it, so we ourselves can access the MinIO dashboard!):
+**Deployment with secrets**: our deployment includes some services that require authentication, e.g. the object store (MinIO) and database (Postgres) used by the model registry. We don't want to include passwords or other secrets in our Git repository, either! To address this, we will have Ansible generate a secret password and register it with Kubernetes, e.g.:
 
 ```
 - name: Generate MinIO secret key
@@ -1130,7 +1162,7 @@ This general pattern can similarly be applied more broadly to any applications a
 
 
 
-Let's add the gourmetgram-platform application now. In the output of the following cell, look for the MinIO secret, which will be generated and then printed in the output:
+Let's add the gourmetgram-platform application now. 
 
 
 
@@ -1141,16 +1173,15 @@ ansible-playbook -i inventory.yml argocd/argocd_add_platform.yml
 ```
 
 
-Once the platform is deployed, we can open:
-
-* MinIO object store on `http://A.B.C.D:9001` (substitute your own floating IP) - log in with the access key and secret printed by the playbook above. Our model artifacts will be stored here once we start generating them.
-* MLFlow model registry on `http://A.B.C.D:8000`  (substitute your own floating IP), and click on the "Models" tab. 
+Once the platform is deployed, we can open the MLFlow model registry on `http://A.B.C.D:8000`  (substitute your own floating IP), and click on the "Models" tab. 
 
 We haven't "trained" any model yet, but when we do, they will appear here.
 
 
 
-Next, we need to deploy the GourmetGram application. Before we do, we need to build a container image. We will run a one-time workflow in Argo Workflows to build the initial container images for the "staging", "canary", and "production" environments:
+Next, we need to deploy the GourmetGram application. 
+
+During regular operation, CI will build the container image for the application. But to bootstrap the deployment, we will build it ourselves. We will run a one-time workflow in Argo Workflows to build the initial container images for the "staging", "canary", and "production" environments:
 
 
 
@@ -1161,12 +1192,14 @@ ansible-playbook -i inventory.yml argocd/workflow_build_init.yml
 ```
 
 
-You can see the workflow YAML [here](https://github.com/teaching-on-testbeds/gourmetgram-iac/blob/main/workflows/build-initial.yaml), and follow along in the Argo Workflows dashboard as it runs.
+Look at the workflow YAML [here](https://github.com/teaching-on-testbeds/gourmetgram-iac/blob/main/workflows/build-initial.yaml), which defines each step of the container image build job.
+
+Follow along in the Argo Workflows dashboard as it runs - you can see each stage as a node in a DAG, and you can click on a node to see its logs.
 
 
 
 
-We also need to build the training container image, which Argo will use when we run a training job later:
+Also build the training container image, which will be used as part of the pipeline when we run a training job later:
 
 
 
@@ -1177,7 +1210,7 @@ ansible-playbook -i inventory.yml argocd/workflow_build_training_init.yml
 ```
 
 
-Now that we have a container image, we can deploy our application -
+Now that we have a container image, we can deploy our application to three environments -
 
 
 ```bash
@@ -1200,22 +1233,25 @@ ansible-playbook -i inventory.yml argocd/argocd_add_prod.yml
 ```
 
 
-Test your staging, canary, and production deployments - we have put them on different ports. For now, they are all running exactly the same model!
-
-* Visit `http://A.B.C.D:8081` (substituting the value of your floating IP) to test the staging service
-* Visit `http://A.B.C.D:8080` (substituting the value of your floating IP) to test the canary service
-* Visit `http://A.B.C.D` (substituting the value of your floating IP) to test the production service
-
-
-
-
-
 At this point, you can also revisit the dashboards you opened earlier:
 
 * In the Kubernetes dashboard, you can switch between namespaces to see the different applications that we have deployed.
 * On the ArgoCD dashboard, you can see the four applications that ArgoCD is managing, and their sync status. 
 
 Take a screenshot of the ArgoCD dashboard for your reference.
+
+
+
+Test your staging, canary, and production deployments - in the Kubernetes `Service` definition, we have put them on different ports. For now, they are all running exactly the same model!
+
+* Visit `http://A.B.C.D:8082` (substituting the value of your floating IP) to test the staging service
+* Visit `http://A.B.C.D:8081` (substituting the value of your floating IP) to test the canary service
+* Visit `http://A.B.C.D:8080` (substituting the value of your floating IP) to test the production service
+
+
+
+Now, Argo CD is constantly comparing the state of our application according to the Kubernetes manifests/Helm charts in Github, vs. the actual state on the cluster, and trying to reconcile them.
+
 
 
 
@@ -1230,9 +1266,11 @@ ansible-playbook -i inventory.yml argocd/workflow_templates_apply.yml
 ```
 
 
-Now, Argo will manage the lifecycle from here on out:
+Argo will manage the lifecycle from here on out: Argo CD for CD:
 
 ![Using ArgoCD for apps and services.](images/step4-lifecycle.svg)
+
+and Argo Workflows for CI.
 
 
 ## Model and application lifecycle - Part 1
@@ -1738,7 +1776,7 @@ In Argo Workflows:
 
 Then, open the staging service:
 
-* Visit `http://A.B.C.D:8081` (substituting the value of your floating IP)
+* Visit `http://A.B.C.D:8082` (substituting the value of your floating IP)
 
 [This version of the `gourmetgram` app](https://github.com/teaching-on-testbeds/gourmetgram/tree/workflow) has a `versions` endpoint:
 
@@ -1754,7 +1792,7 @@ def version():
 
 ```
 
-So you can visit `http://A.B.C.D:8081/version`, and you should see the model version you just promoted to staging.
+So you can visit `http://A.B.C.D:8082/version`, and you should see the model version you just promoted to staging.
 
 
 
@@ -1937,7 +1975,7 @@ Click on the new `promote-model` workflow to watch it execute:
 
 After the workflow completes, verify the promotion:
 
-* Visit `http://A.B.C.D:8080/version` (canary runs on port 8080)
+* Visit `http://A.B.C.D:8081/version` (canary runs on port 8081)
 * You should see the same model version that was just tested in staging
 
 In the MLFlow UI:
@@ -2016,7 +2054,7 @@ steps:
 
 **After revert completes:**
 
-* Visit `http://A.B.C.D:8081/version`
+* Visit `http://A.B.C.D:8082/version`
 * You should see the previous working version (not the bad model version)
 * The bad model version is still in MLFlow, but without the "staging" alias
 * The staging environment is operational again

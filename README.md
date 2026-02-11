@@ -7,6 +7,8 @@ In this tutorial, we will learn how to automate both the initial deployment, and
 * practice deploying systems following infrastructure-as-code and configuration-as-code principles using automated deployment tools
 * and create an automated pipeline to manage a machine learning model through its lifecycle 
 
+Follow along at [Build an MLOps Pipeline](https://teaching-on-testbeds.github.io/mlops-chi/)!
+
 Our experiment will use the following automated deployment and lifecycle management tools:
 
 * Terraform: A declarative Infrastructure as Code (IaC) tool used to provision and manage cloud infrastructure (servers, networks, etc.) by defining the desired end state in configuration files. Here, we use it to provision our infrastructure.

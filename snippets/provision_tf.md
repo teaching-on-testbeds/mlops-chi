@@ -260,6 +260,12 @@ export TF_VAR_reservation=00000000-0000-0000-0000-000000000000
 
 ::: {.cell .markdown}
 
+You'll use Terraform again at the end of this experiment to delete your Terraform-managed resources, and you'll need these variables again then. Open the last notebook in the series and copy/paste the values in the cell above into the equivalent cell there.
+
+:::
+
+::: {.cell .markdown}
+
 We should confirm that our planned configuration is valid:
 
 :::
