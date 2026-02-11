@@ -317,7 +317,6 @@ cp clouds.yaml /work/gourmetgram-iac/tf/kvm/clouds.yaml
 ```
 
 
-
 The Terraform executable has been installed to a location that is not the system-wide location for executable files: `/work/.local/bin`. In order to run `terraform` commands, we will have to add this directory to our `PATH`, which tells the system where to look for executable files.
 
 
@@ -373,7 +372,7 @@ and in *BOTH* cells below, replace **netID** with your own net ID, then run to r
 openstack reservation lease create lease_mlops_netID \
   --start-date "$(date -u '+%Y-%m-%d %H:%M')" \
   --end-date "$(date -u -d '+12 hours' '+%Y-%m-%d %H:%M')" \
-  --reservation "resource_type=flavor:instance,flavor_id=$(openstack flavor show m1.medium -f value -c id),amount=3"
+  --reservation "resource_type=flavor:instance,flavor_id=$(openstack flavor show m1.large -f value -c id),amount=3"
 ```
 
 
@@ -610,12 +609,13 @@ This declarative approach - where we define the desired end state and let the to
 
 
 
+
 ### Install and configure Ansible
 
 
 
 
-Next, we'll set up Ansible! We will similarly to get the Ansible client, which we install in the following cell:
+Next, we'll set up Ansible! We will need to get the Ansible client, which we install in the following cell:
 
 
 ```bash
@@ -914,7 +914,7 @@ ansible-playbook -i ../inventory/mycluster --become --become-user=root ./cluster
 After our Kubernetes install is complete, we run some additional tasks to further configure and customize our Kubernetes deployment. Our post-install playbook will:
 
 * Configure the `kubectl` command so that we can run it directly on "node1" as the `cc` user, and allow the `cc` user to run Docker commands.
-* Change some networking configuration within our cluster.
+* Change the networking configuration on the cluster to make it more stable with respect to Chameleon's network.
 * Configure the Kubernetes dashboard, which we can use to monitor our cluster.
 * Install [ArgoCD](https://argo-cd.readthedocs.io/en/stable/) CLI, [Argo Workflows](https://argoproj.github.io/workflows/), and [Argo Events](https://argoproj.github.io/events/). (Argo CD itself was already installed with Kubespray.) We will use Argo CD for application and service bootstrapping, and Argo Events/Workflows for application lifecycle management on our Kubernetes cluster.
 
@@ -1200,6 +1200,17 @@ Follow along in the Argo Workflows dashboard as it runs - you can see each stage
 
 
 
+Also build the training container image, which will be used as part of the pipeline when we run a training job later:
+
+
+
+```bash
+# runs in Chameleon Jupyter environment
+cd /work/gourmetgram-iac/ansible
+ansible-playbook -i inventory.yml argocd/workflow_build_training_init.yml
+```
+
+
 Now that we have a container image, we can deploy our application to three environments -
 
 
@@ -1293,7 +1304,7 @@ The training script ([`flow.py`](https://github.com/teaching-on-testbeds/gourmet
 
 Note that our "test suite" has tests organized into two files:
 
- * [`tests/test_model_structure.py`](https://github.com/teaching-on-testbeds/gourmetgram-train/blob/mlops/tests/test_model_structure.py) — Validates that the model can be loaded and has the expected size.
+ * [`tests/test_model_structure.py`](https://github.com/teaching-on-testbeds/gourmetgram-train/blob/mlops/tests/test_model_structure.py) — Validates that the model can be loaded and has the expected input and output shape.
 * [`tests/test_model_accuracy.py`](https://github.com/teaching-on-testbeds/gourmetgram-train/blob/mlops/tests/test_model_accuracy.py) — Validates model performance. In this "dummy" example, we've made the test return 0.85 accuracy 70% of the time, and 0.75 accuracy 30% of the time, and we have set a 0.8 threshold for "passing" the test. This means that sometimes, our model may fail, and we'll be able to see how the pipeline responds.
 
 
@@ -1518,7 +1529,7 @@ This completes Part 1 of the model lifecycle!
 
 Once we have a container image, the progression through the model/application lifecycle continues as the new version is promoted through different environments:
 
-* **Staging**: The container image is deployed in a staging environment that mimics the "production" service but without live users. In this staging environment, we can perform automated integration tests against the service, resource usage tests to validate the deployment, and load tests to evaluate the inference performance of the system.
+* **Staging**: The container image is deployed in a staging environment that mimics the "production" service but without live users. In this staging environment, we can perform automated integration tests against the service and load tests to evaluate the inference performance of the system.
 * **Canary** (or other "preliminary" live environment): From the staging environment, the service can be promoted to a canary or other preliminary environment, where it gets requests from a small fraction of live users. In this environment, we are closely monitoring the service, its predictions, and the infrastructure for any signs of problems.
 * **Production**: Finally, after a thorough offline and online evaluation, we may promote the model to the live production environment, where it serves most users. We will continue monitoring the system for signs of degradation or poor performance.
 
@@ -1538,7 +1549,7 @@ Our `build-container-image` workflow automatically triggers two workflows if suc
 In Argo Workflows:
 
 * Click on "Workflows" in the left side menu (mouse over each icon to see what it is)
-* Note that a `deploy-container-image` workflow follows each `build-container-image` workflow
+* Note that a `deploy-container-image` workflow follows each `build-container-image` workflow. After this runs, switch to the Argo CD dashboard and open the "gourmetgram-staging" application; you should see that the old pod is being replaced, with a new one that uses the updated container image.
 * You should also see a `test-staging` workflow that runs after deployment completes
 
 Then, open the staging service:
@@ -1558,15 +1569,7 @@ This makes Git the "single source of truth" for infrastructure state. However, f
 - Update *all* repository path references throughout the codebase to point to their own fork
 - Set up Git credentials with push access
 
-We use a simplified approach where the workflow directly calls ArgoCD's API to update the deployment:
-
-```yaml
-# From deploy-container-image.yaml
-argocd app set "$app_name" --helm-set-string image.tag=$tag
-argocd app sync "$app_name"
-```
-
-This bypasses Git and directly modifies the ArgoCD application's Helm values. While this works well for demos and learning environments, real systems should use the Git-based approach for better auditability, team collaboration, and infrastructure-as-code best practices.
+We instead use a simplified approach where the workflow directly calls ArgoCD's API to update the deployment. This bypasses Git and directly modifies the ArgoCD application's Helm values. For demos and learning environments this is fine, but real systems should use the Git-based approach.
 
 
 
@@ -1577,38 +1580,33 @@ This bypasses Git and directly modifies the ArgoCD application's Helm values. Wh
 Before promoting a model to the canary or production environment - where real users will interact with it! - we should validate that:
 
 1. The model works correctly with the application code (integration testing)
-2. The model can be deployed within the resource constraints specified in the Kubernetes deployment configuration (resource testing)
-3. The model meets operational performance requirements (load testing)
+2. The model meets operational performance requirements (load testing)
 
+That's exactly what the `test-staging` workflow does! You can check the logs of each stage to see the results.
 
-
-
-After running all three tests, the workflow branches based on results. This is a key concept in MLOps: automated decision-making based on test outcomes.
+After running both tests, the workflow branches based on results. This is a key concept in MLOps: automated decision-making based on test outcomes.
 
 ```yaml
 # From test-staging.yaml
 steps:
   # ... tests run sequentially ...
 
-  # Step 4: Mark as approved if all tests pass
+  # Step 3: Mark as approved if all tests pass
   - - name: mark-staging-approved
       template: set-staging-approved
-      when: "{{steps.integration-test.outputs.result}} == pass &&
-             {{steps.resource-test.outputs.result}} == pass &&
-             {{steps.load-test.outputs.result}} == pass"
+      when: "'{{steps.integration-test.outputs.parameters.result}}' == 'pass' &&
+             '{{steps.load-test.outputs.parameters.result}}' == 'pass'"
 
-  # Step 5: Branching based on test results
+  # Step 4: Branching based on test results
   - - name: promote-on-success
       template: trigger-promote
-      when: "{{steps.integration-test.outputs.result}} == pass &&
-             {{steps.resource-test.outputs.result}} == pass &&
-             {{steps.load-test.outputs.result}} == pass"
+      when: "'{{steps.integration-test.outputs.parameters.result}}' == 'pass' &&
+             '{{steps.load-test.outputs.parameters.result}}' == 'pass'"
 
     - name: revert-on-failure
       template: trigger-revert
-      when: "{{steps.integration-test.outputs.result}} == fail ||
-             {{steps.resource-test.outputs.result}} == fail ||
-             {{steps.load-test.outputs.result}} == fail"
+      when: "'{{steps.integration-test.outputs.parameters.result}}' == 'fail' ||
+             '{{steps.load-test.outputs.parameters.result}}' == 'fail'"
 ```
 
 There are three possible outcomes:
@@ -1628,9 +1626,8 @@ This branching is implemented using Argo Workflows' `when` conditions. Each bran
 In the Argo Workflows UI, watch the `test-staging` workflow after a successful staging deployment:
 
 1. `integration-test` step runs → logs should show ✓ PASSED
-2. `resource-test` step runs → logs should show ✓ PASSED
-3. `load-test` step runs → logs should show ✓ PASSED
-4. `promote-on-success` step triggers → creates a new `promote-model` workflow
+2. `load-test` step runs → logs should show ✓ PASSED
+3. `promote-on-success` step triggers → creates a new `promote-model` workflow
 
 Click on the new `promote-model` workflow to watch it execute:
 
@@ -1655,41 +1652,66 @@ Take screenshots of:
 4. The MLFlow UI showing the "canary" alias
 
 
+### Path to production
+
+Until now, we have directly accessed different versions of our service in different stages by changing the port number; we put each service on a different port. Users, however, will access our service on the standard port (port 80 for HTTP service) and, as part of our "platform", we have [a service](https://github.com/teaching-on-testbeds/gourmetgram-iac/blob/main/k8s/platform/templates/httproute.yaml) that routes 10% of requests to the canary service, and the remaining 90% to the production service.
+
+Try this for yourself - visit `http://A.B.C.D/version` (using your own public IP) repeatedly, until you hit the canary service.
+
+After some online evaluation in canary, the model may be promoted to a "production" environment. Let's do that, too. From the Argo Workflows UI, find the `promote-model` workflow template and click "Submit". 
+
+* specify "canary" as the source environment
+* specify "production" as the target environment
+* and, specify the version number of the model again
+
+Then, run the workflow. Check the version that is deployed to the "production" environment (`http://A.B.C.D:8080/version`) to verify. 
+
+Take a screenshot, with both the address bar showing the URL and the response showing the version number visible in the screenshot. Also, take a screenshot of the updated list of model versions in the MLFlow UI (the alias list will have changed!).
+
+
+
 ## Model and application lifecycle - Part 3
 
-Once a model is in production, the lifecycle continues. We need to monitor the end-to-end system and decide when to:
+In Part 1 and Part 2, you mostly saw the pipeline working when everything goes well (with the exception of some random "accuracy" failures). Now you’re going to deliberately push a "bad" model through and watch staging protect you.
 
-* **Keep serving**: if the system is healthy and model quality remains acceptable.
-* **Roll back**: if the new version introduces errors, regressions, or instability.
-* **Roll forward**: if the version is healthy and we are ready to increase traffic or fully promote it.
-* **Retrain**: if model quality degrades over time due to data drift, changing user behavior, or new data availability.
-
-This closes the loop back to Part 1: monitoring and evaluation can be the trigger that starts the next training cycle.
+Then you'll also set up training to run on a schedule, so it doesn’t depend on a human clicking "Submit".
 
 
 
-### What to monitor (examples)
+### Run training from the `mlops-bad` branch and observe an integration failure
 
-In a real system, you typically monitor **both** application health and model behavior:
+This first run is meant to fail after deployment. The `mlops-bad` branch is intentionally set up so that the model causes the staging service to fail its integration check (in this lab, it’s “bad” because it’s too slow and the check fails).
 
-* **Service health**: request rate, latency, error rate, saturation (CPU/memory), pod restarts, OOMKills.
-* **Infrastructure health**: node pressure, networking errors, storage errors, queue backlogs.
-* **Model behavior**: prediction distribution shifts, confidence/entropy changes, out-of-distribution signals.
-* **Data quality**: missing features, schema changes, invalid inputs, and drift in key feature distributions.
-* **Business outcomes (when available)**: delayed labels, user engagement, or other product KPIs.
+Start the run like you did before, but change the branch:
 
-The key idea is to define actionable thresholds (alerting) and connect them to runbooks (what to do next).
+1. In the Argo Workflows UI, open “Workflow Templates” and click `train-model`.
+2. Click “Submit”, set the `branch` parameter to `mlops-bad`, and submit.
+3. Wait for the run to finish and for the downstream workflows to kick off. You’re looking for the staging test workflow (usually named something like `test-staging`) that runs after the staging deployment.
+
+If your training run fails early because the dummy accuracy test didn’t pass, just resubmit until you get a passing training run. For this exercise, you need a run that makes it far enough to deploy to staging and run the staging tests.
+
+Once the staging tests run:
+
+4. Open the `test-staging` workflow and click into the integration test step. Read the logs and confirm that the integration check failed.
+5. In Argo Workflows, find the revert workflow that is triggered after the failure and watch it complete.
+6. Finally, verify that staging recovered by visiting the staging version endpoint at `http://A.B.C.D:8082/version` (replace `A.B.C.D` with your floating IP). You should see that staging is back on the previous working version.
+
+The point of this exercise is not just “a test failed”. It’s that the system can automatically return staging to the last known-good model version, instead of leaving you with a broken staging environment.
 
 
 
-### Rollback and continuous improvement
+### B. Set up scheduled training (default branch) as a CronWorkflow
 
-Treat model versions like application releases:
+Now you’ll automate the trigger. Instead of manually submitting `train-model`, you’ll create an Argo `CronWorkflow` that launches it on a schedule using the default training branch.
 
-* Keep a known-good version available and easy to redeploy.
-* Promote progressively (staging → canary → production) and stop promotion on negative signals.
-* Record which model version is running in each environment (and how it was built) for auditability.
-* Use what you learn in production (failures, drift, costs, KPIs) to update tests, SLOs, and retraining triggers.
+1. Create a file named `cron-train.yaml` in your working directory.
+2. Open `notes.txt` and find the “Time-based triggers (CronWorkflow)” example. Copy that example into your `cron-train.yaml` and adapt it so it references the existing `train-model` workflow template.
+3. Make sure it will run training from the default branch (either by relying on the template’s default parameter value, or by explicitly setting the `branch` parameter to the default).
+4. Apply it with `kubectl apply -n argo -f cron-train.yaml`.
+
+Go back to the Argo Workflows UI and find the Cron Workflows page. You should see your scheduled workflow listed there, and after the schedule ticks you should see new `train-model` workflows created automatically.
+
+If you don’t want to wait a long time for the first run, temporarily set the schedule to something frequent, confirm that it fires, and then change it back to a reasonable cadence.
 
 
 

@@ -18,7 +18,7 @@ Our experiment will use the following automated deployment and lifecycle managem
 
 To run this experiment, you should have already created an account on Chameleon, and become part of a project. You should also have added your SSH key to the KVM@TACC site.
 
-This tutorial uses: three `m1.medium` VMs at KVM@TACC, and one floating IP.
+This tutorial uses: three `m1.large` VMs at KVM@TACC, and one floating IP.
 
 ---
 
