@@ -7,6 +7,7 @@
 After our Kubernetes install is complete, we run some additional tasks to further configure and customize our Kubernetes deployment. Our post-install playbook will:
 
 * Configure the `kubectl` command so that we can run it directly on "node1" as the `cc` user, and allow the `cc` user to run Docker commands.
+* Change the networking configuration on the cluster to make it more stable with respect to Chameleon's network.
 * Configure the Kubernetes dashboard, which we can use to monitor our cluster.
 * Install [ArgoCD](https://argo-cd.readthedocs.io/en/stable/) CLI, [Argo Workflows](https://argoproj.github.io/workflows/), and [Argo Events](https://argoproj.github.io/events/). (Argo CD itself was already installed with Kubespray.) We will use Argo CD for application and service bootstrapping, and Argo Events/Workflows for application lifecycle management on our Kubernetes cluster.
 
