@@ -283,8 +283,6 @@ cp clouds.yaml /work/gourmetgram-iac/tf/kvm/clouds.yaml
 
 ::: {.cell .markdown}
 
-:::
-
 The Terraform executable has been installed to a location that is not the system-wide location for executable files: `/work/.local/bin`. In order to run `terraform` commands, we will have to add this directory to our `PATH`, which tells the system where to look for executable files.
 
 :::
