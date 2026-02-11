@@ -8,6 +8,9 @@ So far, you mostly saw the pipeline working when everything goes well (with the 
 
 ::: {.cell .markdown}
 
+### Failing an integration test
+
+
 We're going to train the model using a different branch of the "gourmetgram-train" repo. In this branch, only the model state dictionary is saved to the `.pth` file, whereas previously we were saving the full model object. The training tests will pass - they have been updated to reflect the new type of model artifact - but our integration test in the staging environment will fail, because this model artifact is not compatible with the GourmetGram app code that expects a full model object.
 
 Start the training run like you did before, but change the branch:
