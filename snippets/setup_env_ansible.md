@@ -1,4 +1,6 @@
 
+::: {.cell .markdown}
+
 ### Install and configure Ansible
 
 :::
@@ -6,7 +8,7 @@
 
 ::: {.cell .markdown}
 
-Next, we'll set up Ansible! We will similarly to get the Ansible client, which we install in the following cell:
+Next, we'll set up Ansible! We will need to get the Ansible client, which we install in the following cell:
 
 :::
 
