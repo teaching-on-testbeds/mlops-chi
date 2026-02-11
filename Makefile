@@ -1,7 +1,7 @@
-all: index.md 00_intro.ipynb 01_setup_env_tf.ipynb 02_provision_tf.ipynb 03_setup_env_ansible.ipynb 04_practice_ansible.ipynb 05_deploy_k8s.ipynb 06_post_k8s.ipynb 07_configure_argocd.ipynb 08_lifecycle_part_1.ipynb 09_lifecycle_part_2.ipynb 10_delete.ipynb
+all: index.md 00_intro.ipynb 01_setup_env_tf.ipynb 02_provision_tf.ipynb 03_setup_env_ansible.ipynb 04_practice_ansible.ipynb 05_deploy_k8s.ipynb 06_post_k8s.ipynb 07_configure_argocd.ipynb 08_lifecycle_part_1.ipynb 09_lifecycle_part_2.ipynb 10_lifecycle_part_3.ipynb 11_delete.ipynb
 
 clean: 
-	rm index.md 0_intro.ipynb 1_setup_env_tf.ipynb 2_provision_tf.ipynb 3_setup_env_ansible.ipynb 4_practice_ansible.ipynb 5_deploy_k8s.ipynb 6_post_k8s.ipynb 7_configure_argocd.ipynb 8_lifecycle_part_1.ipynb 9_lifecycle_part_2.ipynb 00_intro.ipynb 01_setup_env_tf.ipynb 02_provision_tf.ipynb 03_setup_env_ansible.ipynb 04_practice_ansible.ipynb 05_deploy_k8s.ipynb 06_post_k8s.ipynb 07_configure_argocd.ipynb 08_lifecycle_part_1.ipynb 09_lifecycle_part_2.ipynb 10_delete.ipynb
+	rm index.md 0_intro.ipynb 1_setup_env_tf.ipynb 2_provision_tf.ipynb 3_setup_env_ansible.ipynb 4_practice_ansible.ipynb 5_deploy_k8s.ipynb 6_post_k8s.ipynb 7_configure_argocd.ipynb 8_lifecycle_part_1.ipynb 9_lifecycle_part_2.ipynb 10_lifecycle_part_3.ipynb 00_intro.ipynb 01_setup_env_tf.ipynb 02_provision_tf.ipynb 03_setup_env_ansible.ipynb 04_practice_ansible.ipynb 05_deploy_k8s.ipynb 06_post_k8s.ipynb 07_configure_argocd.ipynb 08_lifecycle_part_1.ipynb 09_lifecycle_part_2.ipynb 10_lifecycle_part_3.ipynb 11_delete.ipynb
 
 index.md: snippets/*.md images/*
 	cat snippets/intro.md \
@@ -14,6 +14,7 @@ index.md: snippets/*.md images/*
 		snippets/configure_argocd.md \
 		snippets/lifecycle_part_1.md \
 		snippets/lifecycle_part_2.md \
+		snippets/lifecycle_part_3.md \
 		snippets/delete.md \
 		> index.tmp.md
 	grep -v '^:::' index.tmp.md > index.md
@@ -80,8 +81,14 @@ index.md: snippets/*.md images/*
 				-o 09_lifecycle_part_2.ipynb  
 	sed -i 's/attachment://g' 09_lifecycle_part_2.ipynb
 
-10_delete.ipynb: snippets/delete.md
+10_lifecycle_part_3.ipynb: snippets/lifecycle_part_3.md
+	pandoc --resource-path=../ --embed-resources --standalone --wrap=none \
+				-i snippets/frontmatter_python.md snippets/lifecycle_part_3.md \
+				-o 10_lifecycle_part_3.ipynb  
+	sed -i 's/attachment://g' 10_lifecycle_part_3.ipynb
+
+11_delete.ipynb: snippets/delete.md
 	pandoc --resource-path=../ --embed-resources --standalone --wrap=none \
 				-i snippets/frontmatter_bash.md snippets/delete.md \
-				-o 10_delete.ipynb  
-	sed -i 's/attachment://g' 10_delete.ipynb
+				-o 11_delete.ipynb  
+	sed -i 's/attachment://g' 11_delete.ipynb

@@ -55,7 +55,7 @@ This repository has the following structure:
 * The `tf` directory includes materials needed for Terraform to provision resources from the cloud provider. This is a "Day 0" setup task.
 * The "Day 1" setup task is to install and configure Kubernetes on the resources. We use Ansible, and the materials are in the `ansible` directory in the `pre_k8s`, `k8s` and `post_k8s` subdirectories. (The `general` directory is just for learning.)
 * The applications that we will be deployed in Kubernetes are defined in the `k8s` directory:
-  * `platform` has all the "accessory" services we need to support our machine learning application. In this example, it has a model registry (where we save trained model artifacts after they are "built") and the associated database and object store services used by the model registry; more generally "platform" may include experiment tracking, evaluation and monitoring, and other related services.
+  * `platform` has all the "accessory" services we need to support our machine learning application. In this example, it has a model registry (where we save trained model artifacts after they are "built") and the associated database and object store services used by the model registry. It also has a gateway service that routes some traffic to a `canary` environment and the rest to `production`. More generally, "platform" may include experiment tracking, evaluation and monitoring, and other related services.
   * `staging`, `canary`, and `production` are deployments of our GourmetGram application. A new model or application version starts off in `staging`; after some internal tests it may be promoted to `canary` where it is served to some live users; and after further evaluation and monitoring, it may be promoted to `production`. 
 * We use Ansible to "register" these applications in ArgoCD, using the playbooks in the `ansible/argocd` directory. ArgoCD is a continuous delivery tool for Kubernetes that automatically deploys and updates applications based on the latest version of its manifests.
 * From "Day 2" and on, during the lifecycle of the application, we use ArgoCD and Argo Workflows to handle model and application versions, using the pipelines in `workflows`.
@@ -225,7 +225,7 @@ clouds:
 
 ```
 
-and then in our Terraform configuration, we could specify which OpenStack cloud to use, e.g. have
+and then in our Terraform configuration, we could multiple OpenStack clouds to use, e.g. have
 
 ```
 provider "openstack" {
@@ -251,6 +251,8 @@ or
 provider = openstack.uc
 ```
 
+to indicate which cloud to provision on.
+
 For now, since we are just using one cloud, we will leave our `clouds.yaml` as is.
 
 :::
@@ -270,7 +272,7 @@ lines from the `clouds.yaml` that you just downloaded from the KVM@TACC GUI (so 
 
 ::: {.cell .markdown}
 
-Terraform will look for the `clouds.yaml` in either ` ~/.config/openstack` or the directory from which we run `terraform` - we will move it to the latter directory:
+Terraform will look for the `clouds.yaml` in either `~/.config/openstack` or the directory from which we run `terraform` - we will move it to the latter directory:
 
 :::
 

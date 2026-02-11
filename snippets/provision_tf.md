@@ -19,7 +19,7 @@ Now that everything is set up, we are ready to provision our VM resources with T
 
 ::: {.cell .markdown}
 
-While Terraform is able to provision most kinds of resources, it cannot create or manage a reservation - this feature of OpenStack is not used very widely, so the Terraform provider for OpenStack does not support it. We will separately create a lease for three server instances outside of Terraform.
+While Terraform is able to provision most kinds of resources, it cannot create or manage a reservation. The reservation feature of OpenStack is not used very widely (outside of Chameleon), and the Terraform provider for OpenStack does not yet support it. We will separately create a lease for three server instances outside of Terraform.
 
 :::
 
@@ -78,7 +78,7 @@ echo $flavor_id
 
 ::: {.cell .markdown}
 
-Make a note of this ID - you will need it later, to provision resources.
+Make a note of this reservation ID - you will need it later, to provision resources.
 
 :::
 
