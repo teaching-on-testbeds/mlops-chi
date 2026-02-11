@@ -155,7 +155,7 @@ ansible-playbook -i inventory.yml argocd/workflow_build_init.yml
 
 ::: {.cell .markdown}
 
-Look at the workflow YAML [here](https://github.com/teaching-on-testbeds/gourmetgram-iac/blob/main/workflows/build-initial.yaml), which defines each step of the container image build job.
+Look at the workflow YAML [here](https://github.com/teaching-on-testbeds/gourmetgram-iac/blob/main/workflows/build-initial-buildkit.yaml), which defines each step of the container image build job.
 
 Follow along in the Argo Workflows dashboard as it runs - you can see each stage as a node in a DAG, and you can click on a node to see its logs.
 
