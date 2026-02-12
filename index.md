@@ -1668,7 +1668,7 @@ After some careful monitoring in canary with real users, the model may be promot
 
 * specify "canary" as the source environment
 * specify "production" as the target environment
-* and, specify the version number of the model again
+* and, specify the version number of the model again (just the model number `X`, not the full version number `1.0.X`)
 
 Then, run the workflow. Check the version that is deployed to the "production" environment (`http://A.B.C.D:8080/version`) to verify.
 
