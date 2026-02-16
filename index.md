@@ -528,7 +528,7 @@ terraform init
 ```
 
 
-We need to set some [variables](https://developer.hashicorp.com/terraform/language/values/variables). In our Terraform configuration, we define a variable named `suffix` that we will substitute with our own net ID, and then we use that variable inside the hostname of instances and the names of networks and other resources in `main.tf`, e.g. we name our network <pre>private-subnet-mlops-<b>${var.suffix}</b></pre>. We'll also use a variable to specify a key pair to install.
+We need to set some [variables](https://developer.hashicorp.com/terraform/language/values/variables). In our Terraform configuration, we define a variable named `suffix` that we will substitute with our own net ID, and then we use that variable inside the hostname of instances and the names of networks and other resources in `main.tf`, e.g. we name our network <code>private-subnet-mlops-</code><strong><code>${var.suffix}</code></strong>. We'll also use a variable to specify a key pair to install.
 
 In the following cell, **replace `netID` with your actual net ID, replace `id_rsa_chameleon` with the name of *your* personal key that you use to access Chameleon resources, and replace the all-zero ID with the reservation ID you printed above.**.
 
@@ -608,7 +608,6 @@ terraform apply -replace='openstack_compute_instance_v2.nodes["node3"]' -auto-ap
 Similarly, we could make changes to the infrastructure description in the `main.tf` file and then use `terraform apply` to update our cloud infrastructure. Terraform would determine which resources can be updated in place, which should be destroyed and recreated, and which should be left alone.
 
 This declarative approach - where we define the desired end state and let the tool get there - is much more robust than imperative-style tools for deploying infrastructure (`openstack` CLI, `python-chi` Python API) (and certainly more robust than ClickOps!).
-
 
 
 
@@ -1400,7 +1399,7 @@ The workflow has five steps:
 This design ensures the training image is always current without requiring a separate manual build step.
 
 
-Then, we can see the `run-training` template, which runs the training container as a Kubernetes pod:
+We can look more closely at the `run-training` step, which runs the training container as a Kubernetes pod:
 
 ```yaml
   - name: run-training
@@ -1431,7 +1430,7 @@ Then, we can see the `run-training` template, which runs the training container 
           value: "http://mlflow.gourmetgram-platform.svc.cluster.local:8000"
 ```
 
-This template:
+This part:
 
  - Launches a pod with the training container image from the local registry
  - Runs `python flow.py` which handles training, testing, and model registration
@@ -1451,9 +1450,7 @@ Note that if pytest tests fail (for example, if the random "accuracy" test retur
 The pipeline gates model registration and deployment to "staging" on passing tests.
 
 
-
-
-Finally, we can see the `trigger-build` template:
+Finally, we can see the `trigger-build` part:
 
 ```yaml
   - name: trigger-build

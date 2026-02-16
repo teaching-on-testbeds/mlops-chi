@@ -124,7 +124,7 @@ The workflow has five steps:
 This design ensures the training image is always current without requiring a separate manual build step.
 
 
-Then, we can see the `run-training` template, which runs the training container as a Kubernetes pod:
+We can look more closely at the `run-training` step, which runs the training container as a Kubernetes pod:
 
 ```yaml
   - name: run-training
@@ -155,7 +155,7 @@ Then, we can see the `run-training` template, which runs the training container 
           value: "http://mlflow.gourmetgram-platform.svc.cluster.local:8000"
 ```
 
-This template:
+This part:
 
  - Launches a pod with the training container image from the local registry
  - Runs `python flow.py` which handles training, testing, and model registration
@@ -175,9 +175,7 @@ Note that if pytest tests fail (for example, if the random "accuracy" test retur
 The pipeline gates model registration and deployment to "staging" on passing tests.
 
 
-
-
-Finally, we can see the `trigger-build` template:
+Finally, we can see the `trigger-build` part:
 
 ```yaml
   - name: trigger-build
