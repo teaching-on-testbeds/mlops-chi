@@ -35,17 +35,18 @@ To run this experiment, you should have already created an account on Chameleon,
 
 There is a known issue in the Chameleon Jupyter environment that affects this experiment as follows: When you first "Launch on Chameleon" it is fine. However, if the Jupyter environment times out and you click "Launch on Chameleon" again to resume your work, you may encounter the symptoms noted below. These are typically resolved by clicking "Keep Waiting" at each prompt, and then waiting 15-20 minutes for the workspace to really load. 
 
-Symptoms are:
+Symptoms of this problem are:
 
-* taking a very long time to launch (with multiple "taking a long time to load" prompts that ask you whether to keep waiting or clear workspace)
+* taking a very long time to launch the Trovi artifact (with multiple "taking a long time to load" prompts that ask you whether to keep waiting or clear workspace)
 * the workspace initially appearing "empty" without files, and without the ability to launch notebooks or terminals, for the first 10-15 minutes after it finally loads
-* 504 Gateway Timeout errors
+* 504 Gateway Timeout errors when launching the Trovi artifact
 
 If the "Keep Waiting"/extra wait time does not work (e.g. if you just encounter the 504 after waiting), you can get a "fresh" copy of the Jupyter envirionment as follows:
 
 1. In the [control panel](https://jupyter.chameleoncloud.org/hub/home), "stop" the corresponding instance. (You can tell which it is by recent activity timestamp).
 2. Once it is stopped, "delete" the instance.
-3. Relaunch the artifact.
+3. Relaunch the artifact. (You may still encounter the first two symptoms noted above, but this should at least address the 504 errors.)
+
 
 :::
 
