@@ -40,11 +40,9 @@ Symptoms are:
 
 If the "Keep Waiting"/extra wait time does not work (e.g. if you just encounter the 504 after waiting), you can get a "fresh" copy of the Jupyter envirionment as follows:
 
-1. Open/launch the artifact 
-2. Open the Jupyter terminal.
-3. Delete all files under `/work` using the command `rm -rf /work/*`
-4. In the [control panel](https://jupyter.chameleoncloud.org/hub/home), "stop" the corresponding instance. (You can tell which it is by recent activity timestamp).
-5. Relaunch the artifact.
+1. In the [control panel](https://jupyter.chameleoncloud.org/hub/home), "stop" the corresponding instance. (You can tell which it is by recent activity timestamp).
+2. Once it is stopped, "delete" the instance.
+3. Relaunch the artifact.
 
 
 
